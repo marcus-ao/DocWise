@@ -1,0 +1,84 @@
+{
+  "services": [
+    {
+      "service_name": "airflow-scheduler",
+      "project_name": "data-platform",
+      "status": "degraded",
+      "checked_at": "2026-04-29T10:30:00Z",
+      "metrics": {
+        "cpu_percent": 78.3,
+        "memory_percent": 84.1,
+        "error_rate_5m": 0.12,
+        "p95_latency_ms": 1200.0
+      },
+      "active_alerts": [
+        {
+          "severity": "critical",
+          "name": "SchedulerHeartbeatMissing",
+          "started_at": "2026-04-29T10:14:00Z"
+        },
+        {
+          "severity": "warning",
+          "name": "HighMemoryUsage",
+          "started_at": "2026-04-29T10:18:00Z"
+        }
+      ]
+    },
+    {
+      "service_name": "airflow-worker",
+      "project_name": "data-platform",
+      "status": "down",
+      "checked_at": "2026-04-29T10:30:00Z",
+      "metrics": {
+        "cpu_percent": 95.2,
+        "memory_percent": 97.8,
+        "error_rate_5m": 0.45,
+        "p95_latency_ms": 2100.0
+      },
+      "active_alerts": [
+        {
+          "severity": "critical",
+          "name": "WorkerOOM",
+          "started_at": "2026-04-29T10:20:00Z"
+        },
+        {
+          "severity": "critical",
+          "name": "TaskFailureRateHigh",
+          "started_at": "2026-04-29T10:15:00Z"
+        }
+      ]
+    },
+    {
+      "service_name": "backstage-backend",
+      "project_name": "backstage-portal",
+      "status": "degraded",
+      "checked_at": "2026-04-29T10:30:00Z",
+      "metrics": {
+        "cpu_percent": 62.4,
+        "memory_percent": 71.5,
+        "error_rate_5m": 0.08,
+        "p95_latency_ms": 980.0
+      },
+      "active_alerts": [
+        {
+          "severity": "warning",
+          "name": "CatalogProviderLag",
+          "started_at": "2026-04-29T10:05:00Z"
+        }
+      ]
+    },
+    {
+      "service_name": "fastapi-app",
+      "project_name": "api-gateway",
+      "status": "healthy",
+      "checked_at": "2026-04-29T10:30:00Z",
+      "metrics": {
+        "cpu_percent": 41.2,
+        "memory_percent": 55.3,
+        "error_rate_5m": 0.01,
+        "p95_latency_ms": 120.0
+      },
+      "active_alerts": []
+    }
+  ]
+}

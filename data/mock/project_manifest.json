@@ -1,0 +1,115 @@
+{
+  "projects": [
+    {
+      "workspace_slug": "project_airflow",
+      "project_name": "data-platform",
+      "display_name": "Airflow Data Platform",
+      "services": [
+        {
+          "service_name": "airflow-scheduler",
+          "display_name": "Airflow Scheduler",
+          "owner": "data-infra",
+          "env": "prod",
+          "tier": "critical",
+          "sla": "99.9%",
+          "dependencies": [
+            "postgres-airflow",
+            "redis-broker"
+          ],
+          "runbooks": [
+            "airflow-task-failure",
+            "airflow-scheduler-restart"
+          ],
+          "dashboards": [
+            "airflow-prod-overview",
+            "airflow-dag-metrics"
+          ],
+          "log_sources": [
+            "airflow-scheduler",
+            "airflow-worker"
+          ]
+        },
+        {
+          "service_name": "airflow-worker",
+          "display_name": "Airflow Worker",
+          "owner": "data-infra",
+          "env": "prod",
+          "tier": "critical",
+          "sla": "99.9%",
+          "dependencies": [
+            "airflow-scheduler",
+            "postgres-airflow",
+            "redis-broker"
+          ],
+          "runbooks": [
+            "airflow-worker-oom-runbook",
+            "airflow-task-failure"
+          ],
+          "dashboards": [
+            "airflow-prod-overview",
+            "airflow-worker-resources"
+          ],
+          "log_sources": [
+            "airflow-worker"
+          ]
+        }
+      ]
+    },
+    {
+      "workspace_slug": "project_backstage",
+      "project_name": "backstage-portal",
+      "display_name": "Backstage Developer Portal",
+      "services": [
+        {
+          "service_name": "backstage-backend",
+          "display_name": "Backstage Backend",
+          "owner": "platform-eng",
+          "env": "prod",
+          "tier": "standard",
+          "sla": "99.5%",
+          "dependencies": [
+            "postgres-backstage",
+            "catalog-provider"
+          ],
+          "runbooks": [
+            "backstage-catalog-sync"
+          ],
+          "dashboards": [
+            "backstage-overview"
+          ],
+          "log_sources": [
+            "backstage-backend"
+          ]
+        }
+      ]
+    },
+    {
+      "workspace_slug": "project_fastapi",
+      "project_name": "api-gateway",
+      "display_name": "FastAPI Gateway",
+      "services": [
+        {
+          "service_name": "fastapi-app",
+          "display_name": "FastAPI App",
+          "owner": "gateway-team",
+          "env": "prod",
+          "tier": "critical",
+          "sla": "99.9%",
+          "dependencies": [
+            "redis-cache",
+            "auth-service"
+          ],
+          "runbooks": [
+            "fastapi-latency-runbook"
+          ],
+          "dashboards": [
+            "fastapi-gateway-overview"
+          ],
+          "log_sources": [
+            "fastapi-app"
+          ]
+        }
+      ]
+    }
+  ]
+}

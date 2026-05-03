@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "docwise"
+version = "0.1.0"
+description = "Developer knowledge workflow agent with RAG, troubleshooting tools, and evaluation."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiofiles>=24.1.0",
+    "alembic>=1.13.3",
+    "arq>=0.26.3",
+    "asyncpg>=0.30.0",
+    "dashscope>=1.23.0",
+    "fastapi>=0.115.0",
+    "httpx>=0.27.2",
+    "langchain-core>=0.3.0",
+    "langgraph>=0.2.50",
+    "minio>=7.2.10",
+    "openai>=1.59.0",
+    "pgvector>=0.3.6",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "pymupdf>=1.24.10",
+    "python-docx>=1.1.2",
+    "python-multipart>=0.0.12",
+    "redis>=5.2.0",
+    "sqlalchemy>=2.0.36",
+    "streamlit>=1.40.0",
+    "structlog>=24.4.0",
+    "uvicorn[standard]>=0.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+exclude = [".venv", "data/raw", "data/processed"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008", "E501"]
+

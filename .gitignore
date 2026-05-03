@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.docker
+.env.production
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Data (raw docs can be large)
+data/raw/
+data/processed/
+
+# Test / Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.tmp/
+
+# Misc
+*.log
+logs/
+.run/
+
+# Docs
+docs/agent-prompts/
+docs/unfinished/
+docs/contracts/

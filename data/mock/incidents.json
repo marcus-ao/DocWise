@@ -1,0 +1,35 @@
+{
+  "incidents": [
+    {
+      "incident_id": "inc_airflow_001",
+      "title": "Airflow worker OOM caused task failures",
+      "service_name": "airflow-worker",
+      "project_name": "data-platform",
+      "severity": "critical",
+      "status": "investigating",
+      "started_at": "2026-04-29T10:15:00Z",
+      "resolved_at": null,
+      "root_cause": "Worker memory saturation and retry exhaustion.",
+      "resolution": "Scale worker memory and reduce parallelism until stable.",
+      "affected_services": [
+        "airflow-worker",
+        "airflow-scheduler"
+      ]
+    },
+    {
+      "incident_id": "inc_backstage_001",
+      "title": "Backstage catalog sync lag",
+      "service_name": "backstage-backend",
+      "project_name": "backstage-portal",
+      "severity": "warning",
+      "status": "resolved",
+      "started_at": "2026-04-29T09:40:00Z",
+      "resolved_at": "2026-04-29T10:05:00Z",
+      "root_cause": "Catalog provider timeout.",
+      "resolution": "Increased provider timeout and retried sync.",
+      "affected_services": [
+        "backstage-backend"
+      ]
+    }
+  ]
+}
