@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from openai import RateLimitError
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from src.agent.graph import build_agent_graph, run_agent
 from src.agent.state import RetryableError, RetryBudget, create_initial_state
@@ -23,6 +23,12 @@ from src.models.feedback import Feedback
 from src.models.query import Query, RetrievalResult
 from src.observability import complete_agent_run, create_agent_run
 from src.schemas.chat import ChatRequest, ChatResponse, FeedbackRequest, FeedbackResponse
+from src.schemas.frontend import (
+    ChatConversationDetail,
+    ChatConversationListItem,
+    ChatConversationListResponse,
+    ChatConversationMessage,
+)
 from src.schemas.shared import ToolCallItem
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -98,6 +104,81 @@ def _token_content(event: dict) -> str:
     if isinstance(content, list):
         return "".join(str(part) for part in content)
     return str(content or "")
+
+
+def _conversation_title(query: str) -> str:
+    normalized = " ".join(query.split())
+    if len(normalized) <= 48:
+        return normalized or "未命名对话"
+    return f"{normalized[:45]}..."
+
+
+def _reasoning_title(node_name: str) -> str:
+    return {
+        "query_router": "路由决策",
+        "hybrid_retriever": "混合检索",
+        "reranker": "结果重排",
+        "evidence_validator": "证据校验",
+        "tool_planner": "工具规划",
+        "tool_executor": "工具执行",
+        "citation_verifier": "引用校验",
+        "answer_generator": "答案生成",
+    }.get(node_name, node_name)
+
+
+def _reasoning_payload(event: dict) -> dict | None:
+    event_type = event.get("event")
+    node_name = str(event.get("name") or "")
+    if event_type not in {"on_chain_start", "on_chain_end", "on_chain_error"} or not node_name:
+        return None
+
+    state = _state_from_event(event)
+    status_value = "active" if event_type == "on_chain_start" else "complete"
+    if event_type == "on_chain_error" or state.get("error"):
+        status_value = "error"
+
+    payload: dict[str, object] = {
+        "node": node_name,
+        "title": _reasoning_title(node_name),
+        "status": status_value,
+    }
+    if node_name == "query_router":
+        payload.update(
+            {
+                "decision": state.get("route"),
+                "reason": f"工作区策略: {state.get('workspace_policy', 'public_only')}",
+                "confidence": float(state.get("route_confidence") or 0.0),
+            }
+        )
+    elif node_name == "hybrid_retriever":
+        payload.update(
+            {
+                "reason": f"召回 {len(state.get('retrieved_chunks') or [])} 个候选片段",
+                "workspace_ids": list(state.get("workspace_ids") or []),
+            }
+        )
+    elif node_name == "reranker":
+        payload["reason"] = f"保留 {len(state.get('reranked_chunks') or [])} 个高相关片段"
+    elif node_name == "tool_executor":
+        tools = list(state.get("tools_to_call") or [])
+        payload["reason"] = "、".join(str(tool) for tool in tools) if tools else "工具执行完成"
+    elif node_name == "citation_verifier":
+        payload["reason"] = f"验证 {len(state.get('citations') or [])} 条引用"
+    elif node_name == "answer_generator":
+        payload.update(
+            {
+                "reason": "生成最终回答",
+                "confidence": float(state.get("confidence_score") or 0.0),
+            }
+        )
+    else:
+        payload["reason"] = str(state.get("error") or "节点执行中")
+    return payload
+
+
+async def map_langgraph_event_to_reasoning_sse(event: dict) -> str | None:
+    payload = _reasoning_payload(event)
+    return format_sse("reasoning", payload) if payload else None
 
 
 async def map_langgraph_event_to_sse(event: dict) -> str | None:
@@ -271,7 +352,10 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 if event_state:
                     final_state = event_state
                     out_of_scope = out_of_scope or final_state.get("route") == "out_of_scope"
+                reasoning = await map_langgraph_event_to_reasoning_sse(event)
                 mapped = await map_langgraph_event_to_sse(event)
+                if reasoning and not out_of_scope:
+                    yield reasoning
                 if mapped:
                     if out_of_scope and not mapped.startswith("event: route\n"):
                         continue
@@ -318,6 +402,93 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/conversations", response_model=ChatConversationListResponse)
+async def list_conversations(
+    db: DbSession,
+    workspace_slug: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> ChatConversationListResponse:
+    stmt = select(Query).order_by(Query.created_at.desc()).limit(limit).offset(offset)
+    count_stmt = select(func.count()).select_from(Query)
+    if workspace_slug:
+        stmt = stmt.where(Query.workspace_slug == workspace_slug)
+        count_stmt = count_stmt.where(Query.workspace_slug == workspace_slug)
+    rows = (await db.scalars(stmt)).all()
+    total = int(await db.scalar(count_stmt) or 0)
+
+    items: list[ChatConversationListItem] = []
+    for query in rows:
+        run = await db.scalar(
+            select(AgentRun).where(AgentRun.query_id == query.id).order_by(AgentRun.created_at.desc()).limit(1)
+        )
+        updated_at = (run.ended_at or run.created_at) if run else query.created_at
+        items.append(
+            ChatConversationListItem(
+                id=query.id,
+                query_id=query.id,
+                run_id=run.id if run else None,
+                title=_conversation_title(query.original_query),
+                workspace_id=query.workspace_slug,
+                workspace_slug=query.workspace_slug,
+                created_at=query.created_at,
+                updated_at=updated_at,
+                message_count=2 if (run and run.answer) or query.answer else 1,
+                route=str(getattr(run.route, "value", run.route)) if run and run.route else None,
+                status=str(getattr(run.status, "value", run.status)) if run else None,
+            )
+        )
+
+    return ChatConversationListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/conversations/{conversation_id}", response_model=ChatConversationDetail)
+async def get_conversation(db: DbSession, conversation_id: UUID) -> ChatConversationDetail:
+    query = await db.get(Query, conversation_id)
+    if query is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    run = await db.scalar(
+        select(AgentRun).where(AgentRun.query_id == query.id).order_by(AgentRun.created_at.desc()).limit(1)
+    )
+    retrieval_rows = (await db.scalars(select(RetrievalResult).where(RetrievalResult.query_id == query.id))).all()
+    citations = citations_from_final(run.final_citations) if run else []
+    if not citations:
+        citations = citations_from_retrieval_rows(list(retrieval_rows))
+
+    messages = [
+        ChatConversationMessage(
+            id=f"{query.id}:user",
+            role="user",
+            content=query.original_query,
+            created_at=query.created_at,
+        )
+    ]
+    answer = str(run.answer or query.answer or "") if run else str(query.answer or "")
+    if answer:
+        messages.append(
+            ChatConversationMessage(
+                id=f"{run.id if run else query.id}:assistant",
+                role="assistant",
+                content=answer,
+                citations=citations,
+                created_at=(run.ended_at or run.created_at) if run else query.created_at,
+            )
+        )
+
+    updated_at = (run.ended_at or run.created_at) if run else query.created_at
+    return ChatConversationDetail(
+        id=query.id,
+        query_id=query.id,
+        run_id=run.id if run else None,
+        title=_conversation_title(query.original_query),
+        workspace_id=query.workspace_slug,
+        workspace_slug=query.workspace_slug,
+        created_at=query.created_at,
+        updated_at=updated_at,
+        messages=messages,
+    )
 
 
 @router.get("/history")

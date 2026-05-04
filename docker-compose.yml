@@ -118,10 +118,10 @@ services:
     profiles: ["observability"]
     environment:
       DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
-      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3001
       NEXTAUTH_SECRET: change-me
     ports:
-      - "3000:3000"
+      - "3001:3000"
     depends_on:
       langfuse-db:
         condition: service_healthy

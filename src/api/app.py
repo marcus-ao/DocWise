@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from minio import Minio
 
-from src.api.routers import admin, agent, chat, documents, eval
+from src.api.routers import admin, agent, chat, documents, eval, lab, traces
 from src.config.settings import settings
 from src.db.redis import get_redis_client
 from src.db.session import engine
@@ -24,6 +24,8 @@ app.include_router(chat.router, prefix=settings.api_prefix)
 app.include_router(agent.router, prefix=settings.api_prefix)
 app.include_router(documents.router, prefix=settings.api_prefix)
 app.include_router(eval.router, prefix=settings.api_prefix)
+app.include_router(traces.router, prefix=settings.api_prefix)
+app.include_router(lab.router, prefix=settings.api_prefix)
 app.include_router(admin.router, prefix=settings.api_prefix)
 
 

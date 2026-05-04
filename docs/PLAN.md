@@ -1,7 +1,5 @@
 # DocWise PLAN
 
-本文是 DocWise 当前权威的架构计划、恢复状态和后续任务路线图。它已经把旧 `docs/PLAN.md` 的系统蓝图与 `docs/TASK.md` 的多 Agent 工作包拆解合并为一个面向当前仓库实际状态的计划。旧的 15 天实施计划和多 Agent 任务拆解保留在本文末尾历史部分，仅用于追溯，不再作为当前事实来源。
-
 ## 1. 项目目标
 
 DocWise 的目标是一个企业级开发者知识工作流 Agent：
@@ -166,29 +164,26 @@ pytest: 121 passed
 - Qwen rerank 非 fallback
 - DeepSeek-compatible chat 返回预期 smoke 文本
 
-## 9. 当前任务路线图
+## 9. 下一阶段开发方向
 
-### P0 保持可运行
+当前项目已完成核心 RAG + Agent 闭环（121 tests passing），进入功能深化和展示质量提升阶段。下一阶段聚焦三大方向：
 
-- 任意改动后至少运行相关单元/集成测试。
-- 涉及 fixture、schema、routes、eval 时运行完整质量门。
-- 涉及 ingestion、retrieval、chat、eval 时优先补真实 smoke，而不是只看类型或单测。
-- 保持 `.env`、日志、上传文档、模型响应中的敏感信息脱敏。
+### 方向一：前端重构 — Next.js + shadcn/ui 专业级 UI
 
-### P1 硬化
+将 Streamlit 管理台替换为独立 Next.js 前端，达到业内主流 AI 产品的展示水准。参考 Perplexity（引用展示）、Langfuse（trace 可视化）、Promptfoo（eval 仪表盘）的 UI 模式。
 
-- 将目前的 smoke 步骤沉淀成更稳定的自动化脚本和可读报告。
-- 扩展 eval case 覆盖项目问答、故障排查、拒答、runbook generation。
-- 强化 Streamlit 页面错误展示和 job polling。
-- 补充 API 认证开启后的端到端验证。
-- 梳理 `docs/contracts/` 与当前实现的差异，保留仍需要冻结的接口。
+### 方向二：RAG 深化 — 检索可视化 + 多轮对话 + Agent 决策透明化
 
-### P2 扩展
+- 检索策略 A/B 对比实验室
+- 多轮对话上下文记忆
+- Agent 每步决策理由实时展示
+- 高级检索增强（HyDE、Query Decomposition、Chunk 关联）
 
-- 根据吞吐需求评估独立向量库，例如 Milvus，但保留 Postgres 作为系统事实源。
-- 引入更完整的权限模型或组织/workspace RBAC。
-- 将 Langfuse 或 OpenTelemetry 从 optional 提升为可部署观测方案。
-- 将 Streamlit 管理台替换或补充为更完整的前端。
+### 方向三：真实知识库 — 公开技术文档获取与入库
+
+用真实的 Apache Airflow / Backstage / FastAPI / K8s / PagerDuty 文档替换当前 stub 文件，建立 200-300 文档、~2000 chunks 的中等规模知识库，使 eval 指标基于真实数据。
+
+详细规划见 Section 13-16。
 
 ## 10. 风险与降级
 
@@ -214,26 +209,23 @@ pytest: 121 passed
 
 ## 12. 实施工作包与当前状态
 
-这一节吸收旧 `docs/TASK.md` 的工作包拆解，但按当前仓库状态重新归并。后续继续开发时，以这里的责任域和验证门为准，而不是旧的 Agent prompt 原文。
+这一节吸收旧 `docs/TASK.md` 的工作包拆解，但按当前仓库状态重新归并。后续继续开发时，以这里的责任域和验证门为准。
 
 | 工作包 | 当前主要路径 | 当前状态 | 下一步关注 |
 | --- | --- | --- | --- |
-| WP-01 Infra/Foundation | `pyproject.toml`, Dockerfile, Compose, Alembic, `src/config/`, `src/db/`, `src/models/`, `src/schemas/` | 已恢复到可运行，本地 infra health、Alembic head、seed 基线可用 | 保持 env 模板、migration、healthcheck 和 docs 同步 |
-| WP-02 LLM/Document/Tasks | `src/llm/`, `src/document/`, `src/tasks/`, `scripts/ingest_docs.py`, `data/raw/` | chunker、ingestion、MinIO bucket、embedding、worker 路径已恢复；Airflow demo 入库 ready | 强化失败重试、job reporting、更多真实文档入库 smoke |
-| WP-03 Retrieval/Agent | `src/retrieval/`, `src/agent/` | hybrid retrieval、rerank fallback、LangGraph route/tool/citation/refusal 主链路存在 | 扩充端到端 agent 场景和 route/tool contract tests |
-| WP-04 API/Frontend | `src/api/`, `src/frontend/`, `scripts/smoke_api.ps1` | FastAPI 路由和 Streamlit 管理台存在，dev_start/dev_stop 管理本地进程 | 强化 Streamlit job polling、错误展示、auth-enabled smoke |
-| WP-05 Observability/Eval/Data | `src/observability/`, `data/mock/`, `data/eval/`, validation scripts | mock/eval fixture gate 通过，eval cases 为 20 retrieval + 30 qa | 扩展 eval 覆盖故障排查、runbook、拒答和 bad-case 分析 |
-| Docs/Contracts | `docs/`, `docs/contracts/` | GUIDE/PLAN/AGENT 已完成当前化合并 | 后续改动必须同步权威文档，旧文档只作历史 |
+| WP-01 Infra/Foundation | `pyproject.toml`, Dockerfile, Compose, Alembic, `src/config/`, `src/db/`, `src/models/`, `src/schemas/` | 已恢复到可运行，本地 infra health、Alembic head、seed 基线可用 | 新增 conversations 表迁移、前端 Docker 集成 |
+| WP-02 LLM/Document/Tasks | `src/llm/`, `src/document/`, `src/tasks/`, `scripts/ingest_docs.py`, `data/raw/` | chunker、ingestion、MinIO bucket、embedding、worker 路径已恢复 | RST parser、真实文档批量入库、大文件处理 |
+| WP-03 Retrieval/Agent | `src/retrieval/`, `src/agent/` | hybrid retrieval、rerank fallback、LangGraph 12 节点主链路完整 | 多轮对话 context_loader、reasoning 事件、检索实验室后端、HyDE |
+| WP-04 API/Frontend | `src/api/`, `src/frontend/`, `web/` (新增) | FastAPI 路由完整，Streamlit 管理台存在 | Next.js 前端 5 页重构、新增 API 端点（conversations/timeline/trends/compare/chunks） |
+| WP-05 Observability/Eval/Data | `src/observability/`, `data/mock/`, `data/eval/` | mock/eval fixture gate 通过，eval cases 为 20 retrieval + 30 qa | 真实文档 eval case 对齐、扩展到 80-100 条、趋势追踪 |
+| Docs/Contracts | `docs/`, `docs/contracts/` | GUIDE/PLAN/AGENT 已完成当前化合并 | 后续改动必须同步权威文档 |
 
 ### 合并与验证顺序
 
-当前项目已经从早期并行开发阶段进入恢复后的单仓收敛阶段。后续变更建议按风险顺序合并：
-
-1. Infra/schema/env 变更先合并，并立即运行 Alembic、seed、fixture validation。
-2. Document/LLM/task 变更合并后，运行 chunk/parser/ingestion 测试和至少一条真实入库 smoke。
-3. Retrieval/Agent 变更合并后，运行 route/retrieval/agent 相关测试，并用已入库 demo 文档做 chat smoke。
-4. API/Frontend 变更合并后，运行 API integration tests、`smoke_api.ps1` 和前端手动检查。
-5. Eval/observability 变更合并后，运行 fixture validators、eval tests 和小批量 eval job。
+1. 真实知识库（Phase 1）先行：下载脚本 → RST parser → 批量入库 → eval 对齐。
+2. RAG 深化（Phase 2）：conversations 表 → context_loader → reasoning 事件 → 检索实验室后端。
+3. 前端重构（Phase 3）：Next.js 初始化 → Chat → Docs → Traces → Eval → Lab。
+4. 每个 Phase 完成后运行完整质量门（pytest + ruff + fixture validation + smoke）。
 
 ### 当前验收清单
 
@@ -245,789 +237,619 @@ pytest: 121 passed
 - [x] `pytest -q` 当前为 `121 passed`。
 - [x] `scripts.ingest_docs --workspace public_tech --dir data\raw\airflow` 同步入库到 ready。
 - [x] `scripts.ingest_docs --workspace public_tech --dir data\raw\airflow --enqueue` 返回已有 succeeded job。
-- [ ] API/worker/frontend 长时间运行稳定性仍需更长 session smoke。
-- [ ] Auth-enabled admin smoke 仍需专门覆盖。
-- [ ] 大文档、多格式、多 workspace 批量 reindex 仍需扩展验证。
+- [ ] 真实文档 200+ 入库，hit_rate@5 > 75%。
+- [ ] 多轮对话 + reasoning 事件可消费。
+- [ ] Next.js 前端 5 页可用。
+- [ ] Eval 仪表盘有真实数据趋势。
 
 ---
 
-## 历史附录：原细粒度实施规划
-
-以下内容来自旧版 `docs/PLAN.md`，用于追溯早期设计过程。当前架构与路线图以上文为准。
-
-# DocWise — Developer Knowledge Workflow Agent 细粒度实施规划
+## Part II: 下一阶段开发规划
 
 ---
 
-## 1. 项目目录结构
+## 13. 前端重构：Next.js + shadcn/ui 专业级 UI
+
+### 13.1 技术选型与架构
+
+| 层 | 选择 | 理由 |
+|---|---|---|
+| 框架 | Next.js 14 (App Router) + TypeScript | SSR/SSG 灵活、生态成熟、体现全栈能力 |
+| UI 库 | shadcn/ui + Tailwind CSS + Radix UI | 可定制、无运行时开销、设计系统一致性 |
+| 流式 | Vercel AI SDK `useChat` hook | 原生 SSE 消费、token 级流式渲染 |
+| 图表 | Recharts (eval) + 自定义 SVG (trace waterfall) | 轻量、React 原生 |
+| 状态 | Zustand + TanStack Query (React Query) | 轻量客户端状态 + 服务端缓存 |
+| 部署 | Docker 容器化，集成现有 compose | 一键启动全栈 |
+
+### 13.2 页面设计（5 个核心页面）
+
+**Page 1: Chat 对话页（Perplexity 风格）**
+
+- 左侧边栏：workspace 选择器 + 对话历史列表 + 新建对话
+- 中间主区域：
+  - 流式回答渲染 + 内联编号引用 `[1][2][3]`
+  - 引用卡片区（答案下方）：文档名、chunk 位置、相关性分数、点击展开原文
+  - 工具调用折叠面板：实时展示 tool_planner → tool_executor 过程
+  - Follow-up 建议按钮（基于当前回答生成 2-3 个追问）
+- 右侧面板（可折叠）：
+  - Agent 决策透明化：路由理由、检索策略、证据评估
+  - 实时 trace 摘要：各阶段耗时、token 消耗
+- 底部：反馈按钮（thumbs up/down + 文字修正）
+
+**Page 2: 文档管理页**
+
+- 拖拽上传区 + 批量上传（支持 PDF/DOCX/MD/RST）
+- 文档列表表格：workspace / 类型 / 状态 / chunk 数 / 进度条
+- 实时 job 状态更新（轮询 + 乐观更新）
+- 文档预览：点击查看原文 + chunk 边界高亮
+- 操作：重新索引、删除、移动 workspace
+
+**Page 3: Trace 观测页（Langfuse 风格）**
+
+- 查询历史列表（可搜索、按 route/workspace/时间筛选）
+- 单条 trace 详情：
+  - Waterfall/Gantt 时间线：每个 Agent 节点的执行时长横条
+  - 节点详情面板：点击节点查看输入/输出/token/cost
+  - 树形结构展示父子嵌套关系
+  - 颜色编码：路由(蓝)、检索(绿)、工具(橙)、生成(紫)、验证(灰)
+- 统计摘要：平均延迟、token 分布、路由分布饼图
+
+**Page 4: Eval 评估页（Promptfoo 风格）**
+
+- 顶部指标卡：Hit Rate、MRR、Citation Accuracy、Faithfulness、Refusal Accuracy
+- 趋势图：指标随 eval run 的变化折线图（run-over-run 对比）
+- 分组视图：按 route / workspace / bad_case_type 分组柱状图
+- Bad case 表格：问题 / 期望 / 实际 / 差异原因 / 跳转 trace
+- 检索策略 A/B 对比：纯向量 vs 混合 vs +rerank 的效果对比热力图
+
+**Page 5: 检索实验室（Retrieval Lab）**
+
+- 输入查询 + workspace 选择 + 策略多选
+- 实时展示多种检索策略的结果并排对比
+- Chunk 级别相关性分数热力图
+- 策略间重叠度 Venn 图
+- 参数调节面板：top_k、rerank_top_k、RRF k 值（实时刷新结果）
+
+### 13.3 前端目录结构
 
 ```
-DocWise/
-├── README.md
-├── .gitignore
-├── .env.example
-├── pyproject.toml
-├── Makefile
-├── docker-compose.yml
-├── docker-compose.override.yml
+web/
+├── package.json
+├── next.config.ts
+├── tailwind.config.ts
+├── tsconfig.json
 ├── Dockerfile
-├── Dockerfile.streamlit
-│
-├── alembic/
-│   ├── alembic.ini
-│   ├── env.py
-│   └── versions/
-│       └── 001_initial_schema.py
-│
-├── scripts/
-│   ├── seed_workspaces.py
-│   ├── ingest_docs.py
-│   ├── download_docs.py
-│   └── generate_mock_data.py
-│
-├── data/
-│   ├── raw/
-│   │   ├── backstage/
-│   │   ├── airflow/
-│   │   ├── fastapi-docs/
-│   │   └── enterprise-sops/
-│   ├── processed/
-│   ├── mock/                        # mock logs, service status JSON fixtures
-│   └── eval/
-│       ├── qa_pairs.jsonl
-│       └── retrieval_golden.jsonl
-│
 ├── src/
-│   ├── __init__.py
-│   ├── config/
-│   │   ├── __init__.py
-│   │   └── settings.py              # Pydantic Settings, 所有环境变量
-│   │
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── base.py                  # DeclarativeBase, 公共 mixin
-│   │   ├── workspace.py
-│   │   ├── document.py              # Document + DocumentChunk
-│   │   ├── query.py                 # Query + RetrievalResult
-│   │   ├── agent.py                 # AgentRun + ToolCall
-│   │   ├── feedback.py
-│   │   └── eval.py                  # EvalCase + EvalResult
-│   │
-│   ├── schemas/
-│   │   ├── __init__.py
-│   │   ├── document.py
-│   │   ├── chat.py
-│   │   ├── agent.py
-│   │   ├── eval.py
-│   │   ├── feedback.py
-│   │   └── admin.py
-│   │
-│   ├── db/
-│   │   ├── __init__.py
-│   │   ├── session.py               # async engine + sessionmaker + get_db
-│   │   └── redis.py                 # Redis 连接池 + get_redis
-│   │
-│   ├── document/
-│   │   ├── __init__.py
-│   │   ├── parser.py                # 统一解析接口 + 工厂
-│   │   ├── pdf_parser.py            # PyMuPDF
-│   │   ├── docx_parser.py           # python-docx
-│   │   ├── markdown_parser.py       # mistune
-│   │   ├── chunker.py               # RecursiveCharacterTextSplitter
-│   │   ├── embedder.py              # OpenAI-compatible embedding
-│   │   └── ingestion.py             # 编排: parse → chunk → embed → store
-│   │
-│   ├── retrieval/
-│   │   ├── __init__.py
-│   │   ├── vector_search.py         # pgvector cosine search
-│   │   ├── keyword_search.py        # PostgreSQL tsvector/tsquery
-│   │   ├── hybrid.py                # RRF 融合
-│   │   ├── reranker.py              # bge-reranker / Jina / Cohere
-│   │   ├── metadata_filter.py       # workspace + doc_type 过滤
-│   │   └── retriever.py             # UnifiedRetriever 统一接口
-│   │
-│   ├── agent/
-│   │   ├── __init__.py
-│   │   ├── state.py                 # AgentState TypedDict
-│   │   ├── graph.py                 # LangGraph 主图构建
-│   │   ├── nodes/
-│   │   │   ├── __init__.py
-│   │   │   ├── input_normalizer.py
-│   │   │   ├── query_router.py
-│   │   │   ├── scope_selector.py
-│   │   │   ├── query_rewriter.py
-│   │   │   ├── hybrid_retriever.py
-│   │   │   ├── reranker.py
-│   │   │   ├── evidence_validator.py
-│   │   │   ├── tool_planner.py
-│   │   │   ├── tool_executor.py
-│   │   │   ├── answer_generator.py
-│   │   │   ├── citation_verifier.py
-│   │   │   └── refusal_checker.py
-│   │   ├── tools/
-│   │   │   ├── __init__.py
-│   │   │   ├── search_docs.py
-│   │   │   ├── query_project_manifest.py
-│   │   │   ├── query_mock_logs.py
-│   │   │   ├── query_service_status.py
-│   │   │   └── generate_runbook_draft.py
-│   │   └── prompts/
-│   │       ├── __init__.py
-│   │       ├── router.py
-│   │       ├── rewriter.py
-│   │       ├── generator.py
-│   │       ├── refusal.py
-│   │       └── tool_planner.py
-│   │
-│   ├── observability/
-│   │   ├── __init__.py
-│   │   ├── tracer.py                # Langfuse 集成
-│   │   ├── evaluator.py             # 批量评估 runner
-│   │   ├── metrics.py               # hit_rate, MRR, NDCG, faithfulness, citation_accuracy
-│   │   └── bad_case.py              # bad case 检测与存储
-│   │
-│   ├── api/
-│   │   ├── __init__.py
-│   │   ├── app.py                   # FastAPI app factory + lifespan + middleware
-│   │   ├── deps.py                  # 共享依赖
-│   │   └── routers/
-│   │       ├── __init__.py
-│   │       ├── documents.py
-│   │       ├── chat.py
-│   │       ├── agent.py
-│   │       ├── eval.py
-│   │       └── admin.py
-│   │
-│   └── frontend/
-│       ├── app.py                   # Streamlit 多页入口
-│       ├── pages/
-│       │   ├── 1_chat.py
-│       │   ├── 2_documents.py
-│       │   ├── 3_traces.py
-│       │   └── 4_eval.py
-│       ├── components/
-│       │   ├── chat_message.py
-│       │   ├── document_uploader.py
-│       │   ├── trace_viewer.py
-│       │   └── eval_chart.py
-│       └── api_client.py            # 后端 API HTTP 客户端
-│
-└── tests/
-    ├── __init__.py
-    ├── conftest.py
-    ├── unit/
-    │   ├── test_parsers.py
-    │   ├── test_chunker.py
-    │   ├── test_hybrid_retrieval.py
-    │   └── test_query_router.py
-    ├── integration/
-    │   ├── test_ingestion_pipeline.py
-    │   ├── test_retrieval_pipeline.py
-    │   └── test_api_endpoints.py
-    └── eval/
-        └── test_eval_runner.py
+│   ├── app/
+│   │   ├── layout.tsx              # 全局布局（侧边栏 + 主区域）
+│   │   ├── page.tsx                # 首页/仪表盘概览
+│   │   ├── chat/
+│   │   │   └── page.tsx
+│   │   ├── documents/
+│   │   │   └── page.tsx
+│   │   ├── traces/
+│   │   │   ├── page.tsx            # trace 列表
+│   │   │   └── [runId]/page.tsx    # 单条 trace 详情
+│   │   ├── eval/
+│   │   │   └── page.tsx
+│   │   └── lab/
+│   │       └── page.tsx            # 检索实验室
+│   ├── components/
+│   │   ├── ui/                     # shadcn/ui 基础组件
+│   │   ├── layout/
+│   │   │   ├── sidebar.tsx
+│   │   │   ├── header.tsx
+│   │   │   └── theme-toggle.tsx
+│   │   ├── chat/
+│   │   │   ├── message-list.tsx
+│   │   │   ├── message-bubble.tsx
+│   │   │   ├── citation-card.tsx
+│   │   │   ├── tool-call-panel.tsx
+│   │   │   └── agent-reasoning.tsx
+│   │   ├── documents/
+│   │   │   ├── upload-zone.tsx
+│   │   │   ├── document-table.tsx
+│   │   │   └── chunk-viewer.tsx
+│   │   ├── traces/
+│   │   │   ├── trace-timeline.tsx
+│   │   │   ├── node-detail.tsx
+│   │   │   └── waterfall-chart.tsx
+│   │   ├── eval/
+│   │   │   ├── metric-cards.tsx
+│   │   │   ├── trend-chart.tsx
+│   │   │   ├── bad-case-table.tsx
+│   │   │   └── comparison-heatmap.tsx
+│   │   └── lab/
+│   │       ├── retrieval-compare.tsx
+│   │       └── vector-viz.tsx
+│   ├── lib/
+│   │   ├── api-client.ts           # 后端 API 封装（fetch + error handling）
+│   │   ├── sse-client.ts           # SSE 流式消费封装
+│   │   ├── utils.ts                # 通用工具函数
+│   │   └── constants.ts            # API URL、颜色映射等
+│   ├── hooks/
+│   │   ├── use-chat-stream.ts      # 流式聊天 hook
+│   │   ├── use-trace.ts            # trace 数据 hook
+│   │   └── use-eval.ts             # eval 数据 hook
+│   ├── stores/
+│   │   ├── chat-store.ts           # 对话状态（Zustand）
+│   │   └── workspace-store.ts      # workspace 选择状态
+│   └── types/
+│       ├── api.ts                   # API 响应类型
+│       ├── chat.ts                  # 聊天相关类型
+│       └── trace.ts                 # trace 相关类型
+└── public/
+    └── favicon.ico
 ```
 
----
+### 13.4 后端 API 适配
 
-## 2. 技术栈与依赖
+现有 FastAPI 后端 API 基本满足前端需求，需要补充以下端点：
 
-```toml
-# pyproject.toml 核心依赖
-[project]
-name = "docwise"
-version = "0.1.0"
-requires-python = ">=3.11"
+| 端点 | 方法 | 用途 |
+|------|------|------|
+| `/api/v1/chat/conversations` | GET | 对话列表（支持分页） |
+| `/api/v1/chat/conversations/{id}` | GET | 单个对话的完整消息历史 |
+| `/api/v1/traces/{run_id}/timeline` | GET | 时间线格式的 trace 数据（waterfall 渲染用） |
+| `/api/v1/eval/trends` | GET | 指标趋势数据（按 run 聚合） |
+| `/api/v1/lab/compare` | POST | 检索策略对比（多策略并行执行） |
+| `/api/v1/documents/{id}/chunks` | GET | 文档 chunk 列表（含位置和分数） |
+| `/api/v1/workspaces` | GET | workspace 列表（前端选择器用） |
 
-dependencies = [
-    # Web 框架
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.30",
-    "python-multipart>=0.0.9",
+### 13.5 Docker 集成
 
-    # 数据库
-    "sqlalchemy[asyncio]>=2.0",
-    "asyncpg>=0.29",
-    "alembic>=1.13",
-    "pgvector>=0.3",
-
-    # Redis
-    "redis>=5.0",
-
-    # 对象存储
-    "minio>=7.2",
-
-    # LLM & Agent
-    "langchain>=0.3",
-    "langchain-openai>=0.2",
-    "langgraph>=0.2",
-    "langfuse>=2.0",
-
-    # 文档解析
-    "pymupdf>=1.24",
-    "python-docx>=1.1",
-    "mistune>=3.0",
-
-    # Embedding & Rerank
-    "tiktoken>=0.7",
-    "httpx>=0.27",
-
-    # 工具
-    "pydantic>=2.0",
-    "pydantic-settings>=2.0",
-
-    # 前端
-    "streamlit>=1.38",
-    "plotly>=5.0",
-]
-
-[project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5"]
+```yaml
+# docker-compose.yml 新增 service
+web:
+  build:
+    context: ./web
+    dockerfile: Dockerfile
+  ports:
+    - "3000:3000"
+  environment:
+    - NEXT_PUBLIC_API_URL=http://backend:8000
+  depends_on:
+    backend:
+      condition: service_healthy
 ```
 
----
-
-## 3. Docker Compose 服务架构
-
-| 服务 | 镜像 | 端口 | 用途 |
-|------|------|------|------|
-| postgres | pgvector/pgvector:pg16 | 5432 | 业务数据 + 向量索引 |
-| redis | redis:7-alpine | 6379 | 缓存 + 任务状态 |
-| minio | minio/minio:latest | 9000/9001 | 文档对象存储 |
-| langfuse | langfuse/langfuse:2 | 3000 | 可观测平台 |
-| langfuse-db | postgres:16-alpine | 5433 | Langfuse 专用数据库 |
-| backend | 自建 Dockerfile | 8000 | FastAPI 后端 |
-| frontend | 自建 Dockerfile.streamlit | 8501 | Streamlit 前端 |
+Streamlit 前端保留为 admin/debug 工具，不再作为主要用户界面。
 
 ---
 
-## 4. 数据库核心表设计
+## 14. RAG 深化：检索可视化 + 多轮对话 + Agent 决策透明化
 
-共 10 张表，分为 4 组：
+### 14.1 检索质量可视化 + A/B 对比
 
-**知识库组**
-- `workspaces` — 知识空间 (public_tech / project_pack)
-- `documents` — 文档元数据 (状态: pending → processing → ready → error)
-- `document_chunks` — 文档切片 + embedding 向量 + tsvector 全文索引
+**目标**: 让用户和开发者直观看到不同检索策略的效果差异，支持参数调优决策。
 
-**问答组**
-- `queries` — 用户查询 + 路由结果 + 回答 + 置信度
-- `retrieval_results` — 每次查询的召回结果 + 各阶段分数
-
-**Agent 组**
-- `agent_runs` — Agent 运行记录 + 状态 + Langfuse trace_id
-- `tool_calls` — 工具调用记录 (输入/输出/耗时/状态)
-
-**评估组**
-- `feedback` — 用户反馈 (thumbs/rating/correction)
-- `eval_cases` — 评估用例 (问题 + 期望答案 + 期望 chunk)
-- `eval_results` — 评估结果 (各项指标分数)
-
-关键索引：
-- `document_chunks.embedding` — IVFFlat 向量索引 (cosine)
-- `document_chunks.content_tsv` — GIN 全文索引
-- `document_chunks.workspace_id` — B-tree 索引用于 workspace 过滤
-
----
-
-## 5. Agent 工作流设计 (LangGraph)
-
-### 5.1 AgentState 定义
+**后端实现**:
 
 ```python
-class AgentState(TypedDict):
-    original_query: str
-    rewritten_query: str
-    route: str                    # tech_general | project_specific | troubleshooting
+# src/api/routers/lab.py
+class CompareRequest(BaseModel):
+    query: str
     workspace_ids: list[str]
-    retrieved_chunks: list[dict]
-    reranked_chunks: list[dict]
-    evidence_sufficient: bool
-    tools_to_call: list[str]
-    tool_results: list[dict]
-    answer: str
-    citations: list[dict]
-    confidence_score: float
-    refused: bool
-    trace_id: str
-    error: str | None
+    strategies: list[Literal["vector_only", "keyword_only", "hybrid_rrf", "hybrid_rerank"]]
+    top_k: int = 10
+
+class CompareResponse(BaseModel):
+    results: dict[str, list[ScoredChunk]]    # 策略 → 结果列表
+    overlap_matrix: dict[str, dict[str, float]]  # 策略间重叠度
+    timing: dict[str, float]                 # 各策略耗时 ms
+    total_unique_chunks: int
 ```
 
-### 5.2 图结构与条件分支
+**执行流程**:
+1. 接收 query + 策略列表
+2. 并行执行各策略（asyncio.gather）
+3. 计算策略间 chunk 重叠度（Jaccard 系数）
+4. 返回结构化对比数据
+
+**前端渲染**:
+- 并排结果表格：每列一个策略，行为 chunk，高亮重叠项
+- 分数分布直方图：各策略的 score 分布对比
+- 重叠度热力图：策略两两之间的 Jaccard 系数矩阵
+- 耗时对比条形图
+
+### 14.2 多轮对话 + 上下文记忆
+
+**目标**: 支持 follow-up 问题，自动引用之前的检索结果，维持对话连贯性。
+
+**数据模型变更**:
+
+```python
+# src/models/conversation.py (新增)
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[str | None]
+    title: Mapped[str]              # 自动从首条消息生成
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+    message_count: Mapped[int] = mapped_column(default=0)
+
+# queries 表新增字段
+conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("conversations.id"))
+turn_index: Mapped[int] = mapped_column(default=0)
+```
+
+**Agent 图变更**:
 
 ```
 START
   → input_normalizer
+  → context_loader (新增)     ← 加载对话历史，生成摘要
   → query_router
   → scope_selector
-  → query_rewriter
+  → query_rewriter            ← 注入对话摘要，改写为独立查询
   → hybrid_retriever
-  → reranker
-  → evidence_validator
-      ├─ evidence_sufficient=True ──→ answer_generator
-      └─ evidence_sufficient=False AND route=troubleshooting ──→ tool_planner
-          → tool_executor
-              ├─ 需要更多证据 ──→ evidence_validator (循环，最多 2 次)
-              └─ 证据充分 ──→ answer_generator
-  → answer_generator
-  → citation_verifier
-  → refusal_checker
-  → END
+  → ...（后续不变）
 ```
 
-### 5.3 各节点职责
+`context_loader` 节点逻辑：
+1. 从 DB 加载 conversation_id 对应的最近 5 轮 (query, answer, citations)
+2. 调用 LLM 生成 ≤200 字的对话摘要
+3. 写入 `state.conversation_history` 和 `state.context_summary`
+4. `query_rewriter` 使用摘要将 follow-up 改写为独立查询
 
-| 节点 | 输入 | 输出 | 实现方式 |
-|------|------|------|----------|
-| input_normalizer | 原始 query | 清洗后 query | 规则 (strip, 编码归一化) |
-| query_router | query | route 分类 | LLM few-shot 分类 |
-| scope_selector | route | workspace_ids | 规则映射 |
-| query_rewriter | query + route | rewritten_query | LLM 改写 |
-| hybrid_retriever | rewritten_query + workspace_ids | retrieved_chunks | 调用 UnifiedRetriever |
-| reranker | query + chunks | reranked_chunks | Reranker API |
-| evidence_validator | reranked_chunks | evidence_sufficient | 分数阈值判断 |
-| tool_planner | query + evidence + route | tools_to_call | LLM 决策 |
-| tool_executor | tools_to_call | tool_results | 执行工具函数 |
-| answer_generator | query + chunks + tool_results | answer + citations | LLM 生成 |
-| citation_verifier | answer + citations + chunks | 验证后 citations | 规则校验 |
-| refusal_checker | confidence_score | refused flag | 阈值判断 |
-
-### 5.4 工具定义
-
-| 工具 | 参数 | 返回 | 数据来源 |
-|------|------|------|----------|
-| search_docs | query, workspace | 相关文档片段 | 知识库检索 |
-| query_project_manifest | project_name | 服务列表、依赖、SLA | JSON fixture |
-| query_mock_logs | service_name, time_range, level | 模拟日志条目 | JSON fixture |
-| query_service_status | service_name | 健康状态、CPU/内存/错误率 | JSON fixture |
-| generate_runbook_draft | incident_type, service_name | Runbook 草稿 | LLM 生成 |
-
----
-
-## 6. 检索策略设计
+**SSE 新增事件**:
 
 ```
-用户 query
-  → 提取关键词 / 错误码 / 项目名
-  → 向量召回 top_k=20 (pgvector cosine)
-  → 关键词召回 top_k=20 (tsvector ts_rank)
-  → workspace_id + doc_type metadata 过滤
-  → RRF 融合去重 (k=60)
-  → Rerank top_k=5
-  → 送入 answer_generator
+event: conversation  data: {"conversation_id": "uuid", "title": "Airflow task 失败排查"}
 ```
 
-RRF 公式: `score(d) = Σ 1/(k + rank_i(d))`，k=60 是经验值，平衡向量和关键词两路结果。
-
----
-
-## 7. API 端点设计
-
-### 文档管理
-| 方法 | 路径 | 功能 |
-|------|------|------|
-| POST | /api/v1/documents/upload | 上传文档 (multipart) |
-| GET | /api/v1/documents | 文档列表 (分页 + workspace 过滤) |
-| GET | /api/v1/documents/{id} | 文档详情 + chunk 统计 |
-| POST | /api/v1/documents/{id}/reindex | 重新索引 |
-| DELETE | /api/v1/documents/{id} | 删除文档及其 chunks |
-
-### 问答
-| 方法 | 路径 | 功能 |
-|------|------|------|
-| POST | /api/v1/chat | 提交问题，返回带引用回答 |
-| GET | /api/v1/chat/{query_id} | 查询历史记录 |
-| POST | /api/v1/chat/{query_id}/feedback | 提交反馈 |
-
-### Agent
-| 方法 | 路径 | 功能 |
-|------|------|------|
-| POST | /api/v1/agent/run | 触发 Agent 工作流 |
-| GET | /api/v1/agent/runs/{run_id} | 查询运行状态 |
-| GET | /api/v1/agent/runs/{run_id}/trace | 查询完整 trace |
-
-### 评估
-| 方法 | 路径 | 功能 |
-|------|------|------|
-| POST | /api/v1/eval/run | 运行评估集 |
-| GET | /api/v1/eval/results | 评估结果列表 |
-| GET | /api/v1/eval/results/{run_id} | 单次评估详情 |
-
-### 管理
-| 方法 | 路径 | 功能 |
-|------|------|------|
-| GET | /api/v1/admin/stats | 系统统计 (文档数/chunk数/查询数) |
-| GET | /api/v1/admin/bad-cases | Bad case 列表 |
-| GET | /api/v1/admin/index-status | 索引状态 |
-
----
-
-## 8. 前端页面设计 (Streamlit)
-
-**页面 1: Chat 对话页**
-- 左侧: workspace 选择器 (下拉)
-- 中间: 对话流 (用户消息 + Agent 回答 + 引用卡片 + 工具调用展示)
-- 右侧: trace 摘要 (路由结果、召回数、耗时)
-- 底部: 反馈按钮
-
-**页面 2: 文档管理页**
-- 文件上传区 (支持多文件)
-- 文档列表表格 (workspace / 类型 / 状态 / chunk数 / 操作)
-- 状态筛选 + workspace 筛选
-
-**页面 3: Trace 观测页**
-- 查询历史列表
-- 单条 trace 详情: router → retrieval → rerank → tool_calls → generation
-- 各阶段耗时瀑布图
-- 召回 chunk 详情 + 分数
-
-**页面 4: Eval 评估页**
-- 运行评估按钮
-- 指标仪表盘: hit_rate, MRR, citation_accuracy, answer_correctness, refusal_accuracy
-- Bad case 表格 (问题 / 期望 / 实际 / 差异原因)
-
----
-
-## 9. 每日实施计划 (15 天)
-
----
-
-### Day 1: 项目初始化 + 基础设施搭建
-
-**目标**: 项目骨架就绪，所有基础服务可启动
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 初始化 git 仓库 + .gitignore | 15min | .gitignore |
-| 创建 pyproject.toml + 安装依赖 | 30min | pyproject.toml |
-| 编写 docker-compose.yml (7 个服务) | 1.5h | docker-compose.yml, docker-compose.override.yml |
-| 编写 Dockerfile + Dockerfile.streamlit | 45min | Dockerfile, Dockerfile.streamlit |
-| 编写 .env.example | 15min | .env.example |
-| 编写 Makefile (up/down/migrate/seed/test) | 30min | Makefile |
-| 创建 src/ 目录结构 + 所有 __init__.py | 30min | src/**/__init__.py |
-| 实现 src/config/settings.py (Pydantic Settings) | 45min | src/config/settings.py |
-| 实现 src/db/session.py (async engine + get_db) | 45min | src/db/session.py |
-| 实现 src/db/redis.py (连接池 + get_redis) | 30min | src/db/redis.py |
-| docker-compose up 验证所有服务启动 | 30min | — |
-
-**验证**: `docker-compose up -d` 后 postgres/redis/minio/langfuse 全部 healthy
-
----
-
-### Day 2: 数据库模型 + 迁移 + 数据准备
-
-**目标**: 数据库 schema 就绪，知识源文档下载完成
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 实现 src/models/base.py (Base + TimestampMixin) | 30min | src/models/base.py |
-| 实现所有 ORM 模型 (workspace/document/chunk/query/agent/feedback/eval) | 2h | src/models/*.py |
-| 配置 Alembic + 编写初始迁移 | 1h | alembic/, alembic/versions/001_initial_schema.py |
-| 运行迁移，验证表结构 + pgvector 扩展 + 索引 | 30min | — |
-| 编写 scripts/seed_workspaces.py (创建默认 workspace) | 30min | scripts/seed_workspaces.py |
-| 编写 scripts/download_docs.py (从 GitHub 下载 Backstage/Airflow/FastAPI docs) | 1h | scripts/download_docs.py |
-| 下载公开技术文档 PDF (PostgreSQL 手册等) | 30min | data/raw/ |
-| 编写 5-10 份模拟企业 SOP/Runbook DOCX | 1.5h | data/raw/enterprise-sops/*.docx |
-| 实现 src/schemas/ 基础 Pydantic 模型 | 1h | src/schemas/*.py |
-
-**验证**: `alembic upgrade head` 成功，`psql` 可查看所有表，data/raw/ 下有文档文件
-
----
-
-### Day 3: 文档解析模块
-
-**目标**: PDF/DOCX/Markdown 三种格式解析完成
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 实现 parser.py (ParsedDocument 模型 + 工厂函数) | 30min | src/document/parser.py |
-| 实现 pdf_parser.py (PyMuPDF: 逐页提取 + 标题检测 + 表格) | 1.5h | src/document/pdf_parser.py |
-| 实现 docx_parser.py (python-docx: 段落 + 标题 + 表格) | 1h | src/document/docx_parser.py |
-| 实现 markdown_parser.py (mistune: 标题层级 + 代码块 + 列表) | 1h | src/document/markdown_parser.py |
-| 实现 chunker.py (RecursiveCharacterTextSplitter + metadata 保留) | 1.5h | src/document/chunker.py |
-| 编写 tests/unit/test_parsers.py | 1h | tests/unit/test_parsers.py |
-| 编写 tests/unit/test_chunker.py | 45min | tests/unit/test_chunker.py |
-| 用实际文档测试解析效果，调整参数 | 1h | — |
-
-**验证**: 对 data/raw/ 中的 PDF/DOCX/MD 文件运行解析，输出结构化 chunk，单元测试通过
-
----
-
-### Day 4: Embedding + 文档入库流水线
-
-**目标**: 文档从上传到入库的完整流水线跑通
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 实现 embedder.py (OpenAI-compatible, 批量处理, 重试) | 1h | src/document/embedder.py |
-| 实现 ingestion.py (编排: MinIO上传 → 解析 → 切分 → embedding → 写库) | 2h | src/document/ingestion.py |
-| 实现 documents router (upload/list/detail/delete) | 1.5h | src/api/routers/documents.py |
-| 实现 FastAPI app.py (app factory + lifespan + CORS) | 45min | src/api/app.py |
-| 实现 api/deps.py (共享依赖) | 30min | src/api/deps.py |
-| 编写 scripts/ingest_docs.py (批量导入 CLI) | 45min | scripts/ingest_docs.py |
-| 运行批量导入，将 data/raw/ 全部入库 | 1h | — |
-| 验证: 查询 documents 表和 document_chunks 表 | 30min | — |
-
-**验证**: 通过 API 上传文档 → 数据库中可查到 document + chunks + embedding 向量
-
----
-
-### Day 5: 检索系统 — 向量检索 + 关键词检索
-
-**目标**: 双路检索可用
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 实现 vector_search.py (pgvector cosine, workspace 过滤) | 1.5h | src/retrieval/vector_search.py |
-| 实现 keyword_search.py (tsvector + ts_rank) | 1.5h | src/retrieval/keyword_search.py |
-| 实现 metadata_filter.py (workspace/doc_type 过滤构建) | 45min | src/retrieval/metadata_filter.py |
-| 实现 hybrid.py (RRF 融合 + 去重) | 1h | src/retrieval/hybrid.py |
-| 编写 tests/unit/test_hybrid_retrieval.py | 1h | tests/unit/test_hybrid_retrieval.py |
-| 用实际问题测试检索效果，调整 top_k 和 RRF k 值 | 1.5h | — |
-
-**验证**: 输入技术问题，向量和关键词两路都能返回相关 chunk，RRF 融合结果合理
-
----
-
-### Day 6: Reranker + 统一检索接口
-
-**目标**: 完整检索链路 (embed → 双路召回 → RRF → rerank) 跑通
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 实现 reranker.py (API-based reranker, 支持降级跳过) | 1.5h | src/retrieval/reranker.py |
-| 实现 retriever.py (UnifiedRetriever: embed → 双路 → RRF → rerank) | 1.5h | src/retrieval/retriever.py |
-| 集成测试: 端到端检索流水线 | 1h | tests/integration/test_retrieval_pipeline.py |
-| 准备 20 条测试问题，人工标注期望 chunk，评估 hit_rate | 2h | data/eval/ 初始数据 |
-| 根据测试结果调优参数 (chunk_size, top_k, rerank_top_k) | 1.5h | — |
-
-**验证**: UnifiedRetriever.retrieve() 对 20 条测试问题的 hit_rate > 70%
-
----
-
-### Day 7: Agent 核心 — 路由 + 改写 + 基础问答
-
-**目标**: 基础 RAG 问答链路跑通 (无工具调用)
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 实现 state.py (AgentState TypedDict) | 30min | src/agent/state.py |
-| 实现 prompts/ 下所有 prompt 模板 | 1.5h | src/agent/prompts/*.py |
-| 实现 input_normalizer 节点 | 30min | src/agent/nodes/input_normalizer.py |
-| 实现 query_router 节点 (LLM few-shot 分类) | 1h | src/agent/nodes/query_router.py |
-| 实现 scope_selector 节点 (route → workspace_ids 映射) | 30min | src/agent/nodes/scope_selector.py |
-| 实现 query_rewriter 节点 (LLM 改写) | 45min | src/agent/nodes/query_rewriter.py |
-| 实现 hybrid_retriever 节点 (调用 UnifiedRetriever) | 30min | src/agent/nodes/hybrid_retriever.py |
-| 实现 reranker 节点 | 30min | src/agent/nodes/reranker.py |
-| 实现 answer_generator 节点 (带引用生成) | 1h | src/agent/nodes/answer_generator.py |
-| 实现 citation_verifier + refusal_checker 节点 | 1h | src/agent/nodes/citation_verifier.py, refusal_checker.py |
-| 实现 graph.py (组装基础图，暂无工具分支) | 1h | src/agent/graph.py |
-
-**验证**: 输入技术问题 → 正确路由 → 检索 → 生成带引用回答；输入无关问题 → 拒答
-
----
-
-### Day 8: Agent 进阶 — 工具调用 + 故障排查工作流
-
-**目标**: 完整 Agent 工作流，包含工具调用和条件分支
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 实现 evidence_validator 节点 | 45min | src/agent/nodes/evidence_validator.py |
-| 实现 tool_planner 节点 (LLM 决策调用哪些工具) | 1h | src/agent/nodes/tool_planner.py |
-| 实现 tool_executor 节点 | 1h | src/agent/nodes/tool_executor.py |
-| 实现 5 个工具函数 | 2h | src/agent/tools/*.py |
-| 编写 mock 数据 (日志、服务状态、项目 manifest) | 1h | data/mock/*.json, scripts/generate_mock_data.py |
-| 更新 graph.py 添加条件分支 (evidence → tool → loop) | 1h | src/agent/graph.py |
-| 端到端测试故障排查场景 | 1.5h | — |
-
-**验证**: 输入 "Airflow task 一直失败" → 路由到 troubleshooting → 检索 + 调用 mock_logs + service_status → 生成排查步骤
-
----
-
-### Day 9: Chat API + Agent API + 基础前端
-
-**目标**: 通过 API 和前端可以完成问答
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 实现 chat router (POST /chat, GET /chat/{id}, POST feedback) | 1.5h | src/api/routers/chat.py |
-| 实现 agent router (POST /agent/run, GET runs/{id}, GET trace) | 1.5h | src/api/routers/agent.py |
-| 实现 frontend/api_client.py (HTTP 客户端封装) | 45min | src/frontend/api_client.py |
-| 实现 Chat 对话页 (输入 + workspace 选择 + 回答 + 引用 + 反馈) | 2h | src/frontend/pages/1_chat.py, components/chat_message.py |
-| 实现文档管理页 (上传 + 列表 + 状态) | 1.5h | src/frontend/pages/2_documents.py, components/document_uploader.py |
-| 实现 Streamlit 主入口 app.py | 30min | src/frontend/app.py |
-
-**验证**: 浏览器打开 Streamlit → 上传文档 → 提问 → 看到带引用回答 + 工具调用展示
-
----
-
-### Day 10: 可观测 — Langfuse 集成 + Trace 页面
-
-**目标**: 全链路 trace 可查看
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 实现 tracer.py (Langfuse callback handler 封装) | 1h | src/observability/tracer.py |
-| 在 Agent 各节点中埋入 trace span | 1.5h | 更新 src/agent/nodes/*.py |
-| 记录: 路由结果、检索 query、召回 chunk、rerank 分数、工具调用、生成结果、耗时、token | 1h | — |
-| 实现 admin router (stats/bad-cases/index-status) | 1h | src/api/routers/admin.py |
-| 实现 Trace 观测页 (查询历史 + 单条 trace 详情 + 耗时瀑布) | 2h | src/frontend/pages/3_traces.py, components/trace_viewer.py |
-| 验证 Langfuse 控制台可看到完整 trace | 1h | — |
-
-**验证**: 提一个问题 → Langfuse 控制台显示完整 trace → Streamlit trace 页面展示各阶段详情
-
----
-
-### Day 11: 评估系统
-
-**目标**: 离线评估可运行，指标可展示
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 编写 120-150 条 eval cases (JSONL 格式) | 3h | data/eval/qa_pairs.jsonl |
-| 实现 metrics.py (hit_rate, MRR, NDCG, faithfulness, citation_accuracy, refusal_accuracy) | 1.5h | src/observability/metrics.py |
-| 实现 evaluator.py (批量运行 eval cases, 收集指标) | 1.5h | src/observability/evaluator.py |
-| 实现 bad_case.py (自动检测 bad case: 未命中/错误引用/误拒答) | 1h | src/observability/bad_case.py |
-| 实现 eval router (POST /eval/run, GET results) | 1h | src/api/routers/eval.py |
-
-**eval cases 分布**:
-- 通用技术问答: 40 条
-- 项目细节问答: 40 条
-- 部署/配置指导: 15 条
-- 故障排查任务: 25 条
-- 无答案拒答: 15 条
-- 引用准确性: 15 条
-
-**验证**: 运行 eval → 输出各项指标 → bad case 列表可查看
-
----
-
-### Day 12: Eval 仪表盘 + 调优
-
-**目标**: 评估结果可视化，系统调优到可展示水平
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 实现 Eval 评估页 (指标仪表盘 + bad case 表格) | 2h | src/frontend/pages/4_eval.py, components/eval_chart.py |
-| 运行完整评估，分析 bad case | 1.5h | — |
-| 调优 prompt (router/rewriter/generator/refusal) | 2h | 更新 src/agent/prompts/*.py |
-| 调优检索参数 (chunk_size/overlap/top_k/rerank_top_k/threshold) | 1.5h | — |
-| 重新运行评估，对比调优前后指标 | 1h | — |
-
-**目标指标** (第一版合理范围):
-- Retrieval Hit Rate: > 75%
-- Citation Accuracy: > 70%
-- Answer Correctness: > 65%
-- Refusal Accuracy: > 80%
-
----
-
-### Day 13: 工程化部署 + 集成测试
-
-**目标**: Docker Compose 一键启动，集成测试通过
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 完善 Dockerfile (多阶段构建, 生产优化) | 1h | Dockerfile |
-| 完善 docker-compose.yml (healthcheck, depends_on, restart) | 1h | docker-compose.yml |
-| 编写集成测试 (API 端点 + 入库流水线 + Agent 图) | 2h | tests/integration/*.py |
-| 从零 docker-compose up 测试完整流程 | 1.5h | — |
-| 修复发现的问题 | 2h | — |
-
-**验证**: 全新环境 `docker-compose up` → `make migrate` → `make seed` → 上传文档 → 问答 → 查看 trace → 运行 eval
-
----
-
-### Day 14: README + 架构图 + Demo 数据
-
-**目标**: 项目文档完整，demo 路径流畅
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 编写 README.md (完整结构，含架构图) | 2.5h | README.md |
-| 绘制系统架构图 (Mermaid 或 draw.io) | 1h | 嵌入 README |
-| 绘制 Agent 工作流图 | 45min | 嵌入 README |
-| 准备 demo 数据 (预置文档 + 预置问题) | 1h | scripts/seed_demo.py |
-| 走通 5 个 demo 场景，确保每个都流畅 | 2h | — |
-| 修复 demo 中发现的问题 | 1h | — |
-
-**5 个 Demo 场景**:
-1. 上传文档 → 查看解析状态
-2. 通用技术问答 (K8s CrashLoopBackOff) → 带引用回答
-3. 项目细节问答 (Backstage TechDocs) → 限定 workspace 回答
-4. 故障排查 Agent (Airflow task 失败) → 工具调用 + 排查步骤
-5. 评估仪表盘 → 指标 + bad case
-
----
-
-### Day 15: 简历 + 面试准备
-
-**目标**: 简历描述完成，面试讲解稿就绪
-
-| 任务 | 预计耗时 | 产出文件 |
-|------|----------|----------|
-| 录制 demo 视频 (5 个场景) | 2h | — |
-| 编写简历项目描述 (中英文) | 1h | — |
-| 编写面试讲解稿 (按问题驱动线索) | 2h | — |
-| 整理项目亮点清单 (面试时可展开的技术点) | 1h | — |
-| 最终代码审查 + 清理 | 1.5h | — |
-
----
-
-## 10. 关键依赖与风险
-
-### 10.1 关键路径
-
-```
-Day 1 基础设施 → Day 2 数据库模型 → Day 3-4 文档解析入库 → Day 5-6 检索系统
-  → Day 7-8 Agent 工作流 → Day 9 API+前端 → Day 10-12 可观测+评估 → Day 13-14 部署+文档
+### 14.3 Agent 决策透明化
+
+**目标**: 实时展示 Agent 每一步的决策理由，让用户理解"为什么这样回答"。
+
+**实现方案**:
+
+每个 Agent 节点在执行后写入 reasoning 事件：
+
+```python
+# src/agent/nodes/query_router.py
+async def query_router(state: AgentState) -> AgentState:
+    route, confidence, reason = await classify_query(state["original_query"])
+    state["route"] = route
+    state["trace_events"].append({
+        "type": "reasoning",
+        "node": "query_router",
+        "decision": route,
+        "confidence": confidence,
+        "reason": reason,  # e.g. "用户提到'失败'和'排查'，匹配故障排查模式"
+        "timestamp": now_ms(),
+    })
+    return state
 ```
 
-Day 1-8 是关键路径，任何延迟都会影响后续。Day 9-14 有一定弹性。
+**SSE reasoning 事件流**:
 
-### 10.2 风险与降级策略
+```
+event: reasoning  data: {"node": "query_router", "decision": "troubleshooting", "confidence": 0.92, "reason": "用户提到'失败'和'排查'，匹配故障排查模式"}
+event: reasoning  data: {"node": "scope_selector", "decision": "project_airflow+public_tech", "reason": "故障排查路由，选择项目+公共知识库"}
+event: reasoning  data: {"node": "evidence_validator", "decision": "insufficient", "reason": "最高 rerank 分数 0.25 < 阈值 0.3，需要工具补充证据"}
+event: reasoning  data: {"node": "tool_planner", "decision": "query_mock_logs", "reason": "需要查看 Airflow worker 最近日志确认错误类型"}
+```
+
+**前端渲染**:
+- 右侧面板实时追加决策卡片
+- 每张卡片：节点图标 + 决策结果 + 理由文本 + 置信度进度条
+- 可折叠/展开，默认展示最近 3 步
+
+### 14.4 检索增强（P2 实验性）
+
+以下功能在检索实验室中作为可开关的实验选项：
+
+**Query Decomposition（查询分解）**:
+- 复杂问题拆分为 2-3 个子问题
+- 各子问题独立检索
+- 合并去重后送入 reranker
+- 适用场景：多条件问题（"Airflow 在 K8s 上部署时 task 失败如何排查"）
+
+**HyDE（假设文档嵌入）**:
+- LLM 先生成一段假设性答案（不需要准确）
+- 用假设答案的 embedding 做向量检索
+- 适用场景：抽象问题（"微服务架构的最佳实践"）
+
+**Chunk 上下文扩展**:
+- 检索到的 chunk 自动关联前后相邻 chunk
+- 扩展窗口：前 1 + 后 1（可配置）
+- 避免截断导致的上下文丢失
+
+**Parent Document Retrieval**:
+- chunk 检索后，回溯到父文档级别
+- 返回更完整的段落上下文
+- 适用场景：需要完整步骤的 runbook/SOP
+
+---
+
+## 15. 真实知识库构建：公开技术文档获取与入库
+
+### 15.1 文档来源与下载策略
+
+| 来源 | Workspace | 预计文档数 | 格式 | 下载方式 | 许可证 |
+|------|-----------|-----------|------|----------|--------|
+| Apache Airflow docs | project_airflow | ~80 | RST/MD | git sparse-checkout `docs/apache-airflow/` | Apache-2.0 |
+| Backstage docs + ADRs | project_backstage | ~60 | MD | git sparse-checkout `docs/` | Apache-2.0 |
+| FastAPI docs (en) | project_fastapi | ~50 | MD | git sparse-checkout `docs/en/docs/` | MIT |
+| Kubernetes troubleshooting | public_tech | ~30 | MD | git sparse-checkout `content/en/docs/tasks/debug/` | CC-BY-4.0 |
+| PagerDuty Incident Response | public_tech | ~20 | MD | git clone（小仓库） | Apache-2.0 |
+| Redis docs (精选) | public_tech | ~15 | MD | git sparse-checkout | BSD-3 |
+| Prometheus docs (精选) | public_tech | ~10 | MD | git sparse-checkout | Apache-2.0 |
+
+**总计**: ~265 文档，预计 ~2000 chunks，embedding 成本约 ¥5-10（Qwen text-embedding-v4）
+
+### 15.2 下载脚本设计
+
+```python
+# scripts/download_real_docs.py
+
+SOURCES = [
+    {
+        "name": "airflow",
+        "repo": "https://github.com/apache/airflow.git",
+        "branch": "main",
+        "sparse_paths": ["docs/apache-airflow/"],
+        "file_filter": ["*.rst", "*.md"],
+        "exclude_patterns": ["_build/", "changelog/", "spelling_wordlist"],
+        "output_dir": "data/raw/airflow/",
+        "workspace": "project_airflow",
+        "max_files": 80,
+    },
+    {
+        "name": "backstage",
+        "repo": "https://github.com/backstage/backstage.git",
+        "branch": "master",
+        "sparse_paths": ["docs/"],
+        "file_filter": ["*.md"],
+        "exclude_patterns": ["CHANGELOG", "node_modules/"],
+        "output_dir": "data/raw/backstage/",
+        "workspace": "project_backstage",
+        "max_files": 60,
+    },
+    {
+        "name": "fastapi",
+        "repo": "https://github.com/fastapi/fastapi.git",
+        "branch": "master",
+        "sparse_paths": ["docs/en/docs/"],
+        "file_filter": ["*.md"],
+        "exclude_patterns": ["release-notes.md"],
+        "output_dir": "data/raw/fastapi-docs/",
+        "workspace": "project_fastapi",
+        "max_files": 50,
+    },
+    {
+        "name": "kubernetes-debug",
+        "repo": "https://github.com/kubernetes/website.git",
+        "branch": "main",
+        "sparse_paths": ["content/en/docs/tasks/debug/"],
+        "file_filter": ["*.md"],
+        "exclude_patterns": [],
+        "output_dir": "data/raw/k8s-troubleshooting/",
+        "workspace": "public_tech",
+        "max_files": 30,
+    },
+    {
+        "name": "pagerduty-ir",
+        "repo": "https://github.com/PagerDuty/incident-response-docs.git",
+        "branch": "master",
+        "sparse_paths": ["docs/"],
+        "file_filter": ["*.md"],
+        "exclude_patterns": [],
+        "output_dir": "data/raw/pagerduty-ir/",
+        "workspace": "public_tech",
+        "max_files": 20,
+    },
+    {
+        "name": "redis-docs",
+        "repo": "https://github.com/redis/redis-doc.git",
+        "branch": "master",
+        "sparse_paths": ["docs/"],
+        "file_filter": ["*.md"],
+        "exclude_patterns": [],
+        "output_dir": "data/raw/redis-docs/",
+        "workspace": "public_tech",
+        "max_files": 15,
+    },
+    {
+        "name": "prometheus-docs",
+        "repo": "https://github.com/prometheus/docs.git",
+        "branch": "main",
+        "sparse_paths": ["content/docs/"],
+        "file_filter": ["*.md"],
+        "exclude_patterns": [],
+        "output_dir": "data/raw/prometheus-docs/",
+        "workspace": "public_tech",
+        "max_files": 10,
+    },
+]
+```
+
+**下载流程**:
+1. 对每个 source 执行 git sparse-checkout（避免 clone 整个大仓库）
+2. 按 file_filter 筛选，按 exclude_patterns 排除
+3. 按 max_files 截断（优先保留文件大小适中的）
+4. 复制到 output_dir，保留相对路径结构
+5. 生成 `data/raw/manifest.json` 记录来源、版本、文件数
+
+### 15.3 文档处理增强
+
+当前 parser 支持 MD/PDF/DOCX。真实文档引入后需要扩展：
+
+**RST Parser（新增）**:
+- Airflow 文档大量使用 reStructuredText
+- 使用 `docutils` 或 `rst-to-myst` 转换为 Markdown 后复用现有 chunker
+- 保留标题层级、代码块、表格结构
+
+**大文件预处理**:
+- 超过 30KB 的文件按 H1/H2 标题预分割为子文档
+- 每个子文档独立入库，保留 `parent_doc_id` 关联
+- 避免单个 chunk 跨越不相关的 section
+
+**元数据提取增强**:
+- 从文件路径推断 `section_path`（如 `airflow/configuration/logging.rst` → `configuration > logging`）
+- 从 frontmatter/RST 元数据提取 `title`、`tags`、`version`
+- 自动标注 `doc_type`：tutorial / reference / troubleshooting / adr / runbook
+
+**去重策略**:
+- 入库前计算 content_hash（SHA-256 of normalized text）
+- 同 workspace 内 content_hash 重复则跳过
+- 跨 workspace 允许重复（同一文档可能属于多个知识域）
+
+### 15.4 Eval Case 对齐
+
+当前 50 个 eval case 中部分引用了不存在的 chunk_uid。真实文档入库后需要：
+
+**Step 1: 导出实际 chunk 索引**
+```bash
+python -m scripts.export_chunk_index --output data/eval/chunk_index.json
+```
+
+**Step 2: 更新 retrieval_golden.jsonl**
+- 将 expected_chunk_uids 映射到实际入库的 chunk
+- 对无法映射的 case，手动标注新的 golden chunk
+
+**Step 3: 扩展 eval case**
+
+| 类别 | 当前数量 | 目标数量 | 新增来源 |
+|------|---------|---------|---------|
+| tech_general | 10 qa + 8 retrieval | 25 qa + 15 retrieval | K8s/Redis/Prometheus 文档 |
+| project_specific | 10 qa + 6 retrieval | 25 qa + 15 retrieval | Airflow/Backstage/FastAPI 文档 |
+| troubleshooting | 5 qa + 4 retrieval | 15 qa + 10 retrieval | PagerDuty IR + Airflow troubleshooting |
+| runbook_generation | 3 qa + 2 retrieval | 8 qa + 5 retrieval | PagerDuty + enterprise SOPs |
+| out_of_scope | 2 qa | 7 qa | 明确超出范围的问题 |
+| multi_turn (新增) | 0 | 10 qa | 多轮对话场景 |
+| **总计** | **50** | ****100+** | — |
+
+**Step 4: 基线指标建立**
+- 真实文档入库后立即运行完整 eval
+- 记录基线指标作为后续调优的参照
+- 目标：hit_rate@5 > 75%, citation_accuracy > 70%
+
+---
+
+## 16. 实施路线图与里程碑
+
+### 16.1 Phase 1: 真实知识库（Day 1-4）
+
+| Day | 任务 | 预计耗时 | 产出 | 验证 |
+|-----|------|---------|------|------|
+| 1 | 实现 `scripts/download_real_docs.py`（git sparse-checkout） | 2h | 下载脚本 |  |
+| 1 | 实现 RST parser（docutils → markdown → 复用 chunker） | 2h | `src/document/rst_parser.py` |  |
+| 1 | 执行下载，获取 ~265 文档到 `data/raw/` | 1h | 文档文件 | 文件数 ≥ 200 |
+| 2 | 大文件预分割 + 元数据提取增强 | 2h | parser 增强 |  |
+| 2 | 批量入库全部文档（分 workspace 执行） | 2h | DB chunks | chunk 数 ≥ 1500 |
+| 2 | Chunk 质量抽检（随机 20 条人工检查分割质量） | 1h | 质量报告 |  |
+| 3 | 导出 chunk_index + 更新 retrieval_golden.jsonl | 2h | eval fixtures |  |
+| 3 | 扩展 eval case 到 80+ 条 | 2h | `data/eval/*.jsonl` | validation 通过 |
+| 3 | 运行完整 eval，建立基线指标 | 1h | 基线报告 | hit_rate@5 记录 |
+| 4 | 检索参数调优（top_k、chunk_size、RRF k、rerank threshold） | 3h | 参数配置 |  |
+| 4 | 重新运行 eval，对比调优前后 | 1h | 对比报告 | hit_rate@5 > 75% |
+
+**Phase 1 里程碑 (M1)**: 200+ 真实文档入库，eval 基线建立，hit_rate@5 > 75%
+
+---
+
+### 16.2 Phase 2: RAG 深化（Day 5-9）
+
+| Day | 任务 | 预计耗时 | 产出 | 验证 |
+|-----|------|---------|------|------|
+| 5 | 新增 `conversations` 表 + Alembic 迁移 | 1h | migration 005 |  |
+| 5 | 实现 `context_loader` 节点 | 2h | `src/agent/nodes/context_loader.py` |  |
+| 5 | 更新 `query_rewriter` 注入对话摘要 | 1.5h | rewriter 增强 |  |
+| 5 | 更新 chat API 支持 conversation_id | 1.5h | API 变更 | 多轮对话 smoke |
+| 6 | 各节点添加 reasoning 事件写入 | 2h | nodes 更新 |  |
+| 6 | SSE 新增 reasoning 事件类型 | 1h | streaming 增强 |  |
+| 6 | 端到端测试：reasoning 事件可通过 SSE 消费 | 1h | 集成测试 | SSE 事件验证 |
+| 7 | 实现 `POST /api/v1/lab/compare` 端点 | 2h | `src/api/routers/lab.py` |  |
+| 7 | 实现多策略并行执行逻辑 | 2h | retrieval 增强 |  |
+| 7 | 实现重叠度计算 + 响应格式 | 1h | lab 完整 | compare API smoke |
+| 8 | 实现 HyDE 检索策略 | 2h | `src/retrieval/hyde.py` |  |
+| 8 | 实现 Query Decomposition | 2h | `src/retrieval/decompose.py` |  |
+| 8 | 实现 Chunk 上下文扩展 | 1.5h | retriever 增强 |  |
+| 9 | 将新策略集成到 lab compare | 1h | lab 扩展 |  |
+| 9 | 运行 eval 验证新策略效果 | 2h | eval 报告 | 对比基线 |
+| 9 | 新增多轮对话 eval case (10 条) | 2h | eval fixtures | validation 通过 |
+
+**Phase 2 里程碑 (M2)**: 多轮对话可用，reasoning 事件可消费，检索实验室后端完整，eval 指标对比基线有提升
+
+---
+
+### 16.3 Phase 3: Next.js 前端（Day 10-17）
+
+| Day | 任务 | 预计耗时 | 产出 | 验证 |
+|-----|------|---------|------|------|
+| 10 | Next.js 项目初始化 + shadcn/ui + Tailwind + Docker | 2h | `web/` 骨架 |  |
+| 10 | 全局布局（侧边栏 + header + theme toggle） | 2h | layout 组件 |  |
+| 10 | API client + SSE client 封装 | 2h | `lib/` 工具 | 连通后端 |
+| 11 | Chat 页面：消息列表 + 流式渲染 + 输入框 | 3h | chat 基础 |  |
+| 11 | Chat 页面：引用卡片 + 内联编号引用 | 2h | citation 组件 |  |
+| 11 | Chat 页面：工具调用折叠面板 | 1.5h | tool-call 组件 | 完整对话流 |
+| 12 | Chat 页面：Agent reasoning 右侧面板 | 2h | reasoning 组件 |  |
+| 12 | Chat 页面：对话历史列表 + 多轮对话 | 2h | conversation UI |  |
+| 12 | Chat 页面：workspace 选择器 + follow-up 建议 | 1.5h | 辅助组件 | Chat 页完整 |
+| 13 | 文档管理页：上传区 + 文档表格 + 状态更新 | 3h | documents 页 |  |
+| 13 | Trace 页面：查询历史列表 + 筛选 | 2h | traces 列表 |  |
+| 13 | Trace 页面：waterfall 时间线 + 节点详情 | 2.5h | trace 详情 | Trace 页完整 |
+| 14 | Eval 页面：指标卡 + 趋势折线图 | 2h | eval 概览 |  |
+| 14 | Eval 页面：bad case 表格 + 分组视图 | 2h | eval 详情 |  |
+| 14 | Eval 页面：策略对比热力图 | 1.5h | comparison 组件 | Eval 页完整 |
+| 15 | 检索实验室：查询输入 + 多策略对比表格 | 2.5h | lab 基础 |  |
+| 15 | 检索实验室：分数热力图 + 重叠度可视化 | 2h | lab 可视化 |  |
+| 15 | 检索实验室：参数调节面板 | 1.5h | lab 交互 | Lab 页完整 |
+| 16 | 响应式适配（移动端 / 平板） | 2h | 响应式 |  |
+| 16 | 暗色模式完善 | 1.5h | theme |  |
+| 16 | 加载状态、错误处理、空状态 | 2h | UX 打磨 |  |
+| 17 | 端到端集成测试（全流程 smoke） | 2h | E2E 验证 |  |
+| 17 | Demo 数据准备 + 截图 | 1.5h | demo 资产 |  |
+| 17 | Docker Compose 全栈启动验证 | 1.5h | 部署验证 | M4 达成 |
+
+**Phase 3 里程碑 (M3/M4)**:
+- M3 (Day 13): Chat + Docs + Traces 三页可用
+- M4 (Day 17): 5 页全部可用，eval 仪表盘有真实数据，Docker 一键启动
+
+---
+
+### 16.4 里程碑总览
+
+| 里程碑 | 预计完成 | 完成标志 | 依赖 |
+|--------|---------|---------|------|
+| M1: 真实知识库就绪 | Day 4 | 200+ 文档入库，hit_rate@5 > 75% | — |
+| M2: RAG 深化完成 | Day 9 | 多轮对话 + reasoning + 检索实验室后端 | M1 |
+| M3: 前端 MVP | Day 13 | Chat + Docs + Traces 三页可用 | M2 |
+| M4: 完整交付 | Day 17 | 5 页全部可用，Docker 全栈一键启动 | M3 |
+
+### 16.5 质量门（每个 Phase 结束时执行）
+
+```bash
+# 基础质量门
+ruff check src tests scripts alembic
+pytest -q
+python -m scripts.validate_mock_data
+python -m scripts.validate_eval_cases
+
+# Phase 1 额外
+python -m scripts.ingest_docs --workspace public_tech --dir data/raw/k8s-troubleshooting
+python -m scripts.run_eval --output reports/baseline.json
+
+# Phase 2 额外
+pytest tests/integration/test_graph_pipeline.py -k "multi_turn or reasoning"
+curl -N http://localhost:8000/api/v1/chat/stream  # 验证 reasoning 事件
+
+# Phase 3 额外
+cd web && npm run build && npm run lint
+docker-compose up --build  # 全栈启动验证
+```
+
+### 16.6 风险与降级
 
 | 风险 | 影响 | 降级方案 |
 |------|------|----------|
-| Reranker API 不可用或太慢 | 检索质量下降 | 跳过 rerank，直接用 RRF 分数排序 |
-| Embedding API 配额不足 | 无法入库 | 减少文档量，优先入库核心文档 |
-| LangGraph 学习曲线陡峭 | Day 7-8 延迟 | 简化图结构，先做线性流程，后加条件分支 |
-| Langfuse 自托管部署问题 | 可观测缺失 | 先用本地日志 + JSON 文件记录 trace，后补 Langfuse |
-| 文档解析质量差 (PDF 表格/复杂排版) | 检索效果差 | 跳过复杂 PDF，优先用 Markdown 文档 |
-| 15 天时间不够 | 功能不完整 | 砍 P1 功能，确保 P0 闭环完整 |
-
-### 10.3 绝不能砍的核心
-
-即使时间紧张，以下必须保留，否则项目失去差异化价值：
-
-1. **双层知识库 + Query Router** — 这是核心差异点
-2. **混合检索 + Rerank** — 区别于纯向量检索 demo
-3. **至少 1 个完整 Agent 工作流** (故障排查) — 证明不是单轮 RAG
-4. **带引用回答 + 拒答** — 证明工程化意识
-5. **Eval 指标** — 证明可量化评估
-6. **Docker Compose 部署** — 证明工程化交付
-
----
-
-## 11. 验证方案
-
-### 11.1 开发阶段验证
-
-每个阶段完成后运行：
-- 单元测试: `pytest tests/unit/`
-- 集成测试: `pytest tests/integration/`
-- 手动测试: 通过 Streamlit 前端走通核心流程
-
-### 11.2 最终验证清单
-
-- [ ] `docker-compose up` 一键启动所有服务
-- [ ] 上传 PDF/DOCX/MD 文档，状态变为 ready
-- [ ] 通用技术问答返回带引用回答
-- [ ] 项目问答只检索对应 workspace
-- [ ] 无关问题触发拒答
-- [ ] 故障排查触发工具调用 + 生成排查步骤
-- [ ] Langfuse 可查看完整 trace
-- [ ] Eval 运行输出各项指标
-- [ ] Bad case 页面可查看
-- [ ] 5 个 demo 场景全部流畅通过
+| Next.js 开发周期超预期 | 前端交付延迟 | 优先完成 Chat + Traces 两页核心页面，Lab 页降级为 P2 |
+| 真实文档质量差（RST 解析问题） | chunk 质量低 | 跳过 RST，只用 MD 文档（Backstage/FastAPI/K8s/PagerDuty） |
+| HyDE/Decomposition 效果不明显 | 检索增强无收益 | 保留为实验室可选项，不影响主流程 |
+| 多轮对话摘要质量不稳定 | follow-up 改写失败 | 降级为简单拼接最近 1 轮 query+answer，不做 LLM 摘要 |
+| Embedding 成本超预期 | 入库成本上升 | 减少文档数到 150，优先保留与 eval case 对应的文档 |
+| 前端 SSE 兼容性问题 | 流式渲染异常 | 降级为轮询模式（每 500ms 拉取最新状态） |

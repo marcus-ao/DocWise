@@ -26,6 +26,7 @@ from src.schemas.document import (
     JobProgressDetail,
     JobStatusResponse,
 )
+from src.schemas.frontend import DocumentChunkItem, DocumentChunksResponse
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -135,6 +136,54 @@ async def get_job_status(db: DbSession, job_id: UUID) -> JobStatusResponse:
         started_at=job.started_at,
         finished_at=job.finished_at,
     )
+
+
+@router.get("/{document_id}/chunks", response_model=DocumentChunksResponse)
+async def list_document_chunks(
+    db: DbSession,
+    document_id: UUID,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> DocumentChunksResponse:
+    document = await db.get(Document, document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    stmt = (
+        select(DocumentChunk)
+        .where(DocumentChunk.document_id == document_id)
+        .order_by(DocumentChunk.chunk_index)
+        .limit(limit)
+        .offset(offset)
+    )
+    count_stmt = select(func.count()).select_from(DocumentChunk).where(DocumentChunk.document_id == document_id)
+    rows = (await db.scalars(stmt)).all()
+    total = int(await db.scalar(count_stmt) or 0)
+    chunks = [
+        DocumentChunkItem(
+            id=chunk.id,
+            chunk_uid=chunk.chunk_uid,
+            index=chunk.chunk_index,
+            content=chunk.content,
+            token_count=chunk.token_count,
+            char_count=chunk.char_count,
+            section_title=chunk.section_title,
+            section_path=chunk.section_path,
+            heading_level=chunk.heading_level,
+            page_number=chunk.page_number,
+            metadata={
+                **(chunk.chunk_metadata or {}),
+                "start_char": chunk.start_char,
+                "end_char": chunk.end_char,
+                "source_anchor": chunk.source_anchor,
+            },
+            language=str(getattr(chunk.language, "value", chunk.language)),
+            created_at=chunk.created_at,
+            updated_at=chunk.updated_at,
+        )
+        for chunk in rows
+    ]
+    return DocumentChunksResponse(document_id=document_id, chunks=chunks, total=total, limit=limit, offset=offset)
 
 
 @router.get("/{document_id}", response_model=DocumentDetail)

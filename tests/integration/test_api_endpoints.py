@@ -523,12 +523,18 @@ async def test_real_app_chat_stream_emits_full_sse_chain(monkeypatch: pytest.Mon
 
     assert response.status_code == 200
     assert _sse_events(response.text) == [
+        "reasoning",
         "route",
+        "reasoning",
         "retrieval",
+        "reasoning",
         "rerank",
+        "reasoning",
         "tool_call",
+        "reasoning",
         "tool_result",
         "token",
+        "reasoning",
         "citation",
         "done",
     ]

@@ -28,8 +28,10 @@ foreach ($dir in @(
 function Start-DocWiseProcess {
     param(
         [string]$Name,
+        [string]$FilePath = $Python,
         [string[]]$ArgumentList,
-        [string]$LogSubdir
+        [string]$LogSubdir,
+        [string]$ProcessWorkDir = $Root
     )
 
     $pidPath = Join-Path $RunDir "docwise-$Name.pid"
@@ -45,9 +47,9 @@ function Start-DocWiseProcess {
     $outLog = Join-Path $LogsDir "$LogSubdir\docwise-$Name.out.log"
     $errLog = Join-Path $LogsDir "$LogSubdir\docwise-$Name.err.log"
     $process = Start-Process `
-        -FilePath $Python `
+        -FilePath $FilePath `
         -ArgumentList $ArgumentList `
-        -WorkingDirectory $Root `
+        -WorkingDirectory $ProcessWorkDir `
         -RedirectStandardOutput $outLog `
         -RedirectStandardError $errLog `
         -PassThru `
@@ -69,6 +71,14 @@ Start-DocWiseProcess `
     -ArgumentList @("-m", "arq", "src.tasks.worker.WorkerSettings")
 
 Start-DocWiseProcess `
-    -Name "frontend" `
+    -Name "frontend-legacy" `
     -LogSubdir "frontend" `
     -ArgumentList @("-m", "streamlit", "run", "src/frontend/app.py", "--server.address=127.0.0.1", "--server.port=$FrontendPort")
+
+New-Item -ItemType Directory -Force -Path (Join-Path $LogsDir "web") | Out-Null
+Start-DocWiseProcess `
+    -Name "web" `
+    -FilePath "npm.cmd" `
+    -ArgumentList @("run", "dev") `
+    -LogSubdir "web" `
+    -ProcessWorkDir (Join-Path $Root "web")

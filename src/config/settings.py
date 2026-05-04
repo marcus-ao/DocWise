@@ -14,7 +14,9 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     api_prefix: str = "/api/v1"
-    cors_origins: str = "http://localhost:8501,http://127.0.0.1:8501"
+    cors_origins: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8501,http://127.0.0.1:8501"
+    )
 
     # Security
     auth_enabled: bool = False
