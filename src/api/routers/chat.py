@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from openai import RateLimitError
-from sqlalchemy import func, select
+from sqlalchemy import delete, exists, func, select
 
 from src.agent.graph import build_agent_graph, run_agent
 from src.agent.state import RetryableError, RetryBudget, create_initial_state
@@ -21,8 +21,17 @@ from src.api.deps import DbSession
 from src.models.agent import AgentRun, ToolCall
 from src.models.feedback import Feedback
 from src.models.query import Query, RetrievalResult
+from src.models.workspace import Workspace
 from src.observability import complete_agent_run, create_agent_run
-from src.schemas.chat import ChatRequest, ChatResponse, FeedbackRequest, FeedbackResponse
+from src.schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    ConversationArchiveRequest,
+    ConversationMutationResponse,
+    ConversationRenameRequest,
+    FeedbackRequest,
+    FeedbackResponse,
+)
 from src.schemas.frontend import (
     ChatConversationDetail,
     ChatConversationListItem,
@@ -111,6 +120,10 @@ def _conversation_title(query: str) -> str:
     if len(normalized) <= 48:
         return normalized or "未命名对话"
     return f"{normalized[:45]}..."
+
+
+def _stored_conversation_title(query: Query) -> str:
+    return getattr(query, "conversation_title", None) or _conversation_title(query.original_query)
 
 
 def _reasoning_title(node_name: str) -> str:
@@ -408,19 +421,34 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
 async def list_conversations(
     db: DbSession,
     workspace_slug: str | None = None,
+    archived: bool | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> ChatConversationListResponse:
-    stmt = select(Query).order_by(Query.created_at.desc()).limit(limit).offset(offset)
+    stmt = select(Query, Workspace).join(Workspace, Workspace.slug == Query.workspace_slug, isouter=True)
     count_stmt = select(func.count()).select_from(Query)
     if workspace_slug:
         stmt = stmt.where(Query.workspace_slug == workspace_slug)
         count_stmt = count_stmt.where(Query.workspace_slug == workspace_slug)
-    rows = (await db.scalars(stmt)).all()
+    if archived is not None:
+        stmt = stmt.where(Query.is_archived.is_(archived))
+        count_stmt = count_stmt.where(Query.is_archived.is_(archived))
+    run_activity = (
+        select(func.max(func.coalesce(AgentRun.ended_at, AgentRun.created_at)))
+        .where(AgentRun.query_id == Query.id)
+        .scalar_subquery()
+    )
+    rows = (
+        await db.execute(
+            stmt.order_by(func.coalesce(run_activity, Query.created_at).desc(), Query.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
     total = int(await db.scalar(count_stmt) or 0)
 
     items: list[ChatConversationListItem] = []
-    for query in rows:
+    for query, workspace in rows:
         run = await db.scalar(
             select(AgentRun).where(AgentRun.query_id == query.id).order_by(AgentRun.created_at.desc()).limit(1)
         )
@@ -430,8 +458,9 @@ async def list_conversations(
                 id=query.id,
                 query_id=query.id,
                 run_id=run.id if run else None,
-                title=_conversation_title(query.original_query),
-                workspace_id=query.workspace_slug,
+                title=_stored_conversation_title(query),
+                is_archived=bool(getattr(query, "is_archived", False)),
+                workspace_id=str(workspace.id) if workspace else None,
                 workspace_slug=query.workspace_slug,
                 created_at=query.created_at,
                 updated_at=updated_at,
@@ -449,10 +478,19 @@ async def get_conversation(db: DbSession, conversation_id: UUID) -> ChatConversa
     query = await db.get(Query, conversation_id)
     if query is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    workspace = None
+    if query.workspace_slug:
+        workspace = await db.scalar(select(Workspace).where(Workspace.slug == query.workspace_slug))
     run = await db.scalar(
         select(AgentRun).where(AgentRun.query_id == query.id).order_by(AgentRun.created_at.desc()).limit(1)
     )
-    retrieval_rows = (await db.scalars(select(RetrievalResult).where(RetrievalResult.query_id == query.id))).all()
+    retrieval_rows = (
+        await db.scalars(
+            select(RetrievalResult)
+            .where(RetrievalResult.query_id == query.id)
+            .order_by(RetrievalResult.final_rank, RetrievalResult.created_at)
+        )
+    ).all()
     citations = citations_from_final(run.final_citations) if run else []
     if not citations:
         citations = citations_from_retrieval_rows(list(retrieval_rows))
@@ -482,8 +520,9 @@ async def get_conversation(db: DbSession, conversation_id: UUID) -> ChatConversa
         id=query.id,
         query_id=query.id,
         run_id=run.id if run else None,
-        title=_conversation_title(query.original_query),
-        workspace_id=query.workspace_slug,
+        title=_stored_conversation_title(query),
+        is_archived=bool(getattr(query, "is_archived", False)),
+        workspace_id=str(workspace.id) if workspace else None,
         workspace_slug=query.workspace_slug,
         created_at=query.created_at,
         updated_at=updated_at,
@@ -498,13 +537,23 @@ async def list_chat_history(
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, object]:
-    stmt = select(Query, AgentRun).join(AgentRun, AgentRun.query_id == Query.id, isouter=True)
-    count_stmt = select(Query)
+    latest_run = (
+        select(AgentRun.id)
+        .where(AgentRun.query_id == Query.id)
+        .order_by(AgentRun.created_at.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(Query, AgentRun)
+        .join(AgentRun, AgentRun.id == latest_run, isouter=True)
+    )
+    count_stmt = select(func.count()).select_from(Query)
     if workspace_slug:
         stmt = stmt.where(Query.workspace_slug == workspace_slug)
         count_stmt = count_stmt.where(Query.workspace_slug == workspace_slug)
     rows = (await db.execute(stmt.order_by(Query.created_at.desc()).limit(limit).offset(offset))).all()
-    total = len((await db.scalars(count_stmt)).all())
+    total = int(await db.scalar(count_stmt) or 0)
     return {
         "items": [
             {
@@ -534,7 +583,13 @@ async def get_chat_history(db: DbSession, query_id: UUID) -> ChatResponse:
     )
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
-    retrieval_rows = (await db.scalars(select(RetrievalResult).where(RetrievalResult.query_id == query_id))).all()
+    retrieval_rows = (
+        await db.scalars(
+            select(RetrievalResult)
+            .where(RetrievalResult.query_id == query_id)
+            .order_by(RetrievalResult.final_rank, RetrievalResult.created_at)
+        )
+    ).all()
     citations = citations_from_final(run.final_citations) or citations_from_retrieval_rows(list(retrieval_rows))
     return ChatResponse(
         query_id=query.id,
@@ -554,6 +609,9 @@ async def get_chat_history(db: DbSession, query_id: UUID) -> ChatResponse:
 
 @router.post("/{query_id}/feedback", response_model=FeedbackResponse, status_code=status.HTTP_202_ACCEPTED)
 async def submit_feedback(db: DbSession, query_id: UUID, request: FeedbackRequest) -> FeedbackResponse:
+    query_exists = await db.scalar(select(exists().where(Query.id == query_id)))
+    if not query_exists:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Query not found")
     if request.thumbs not in {None, "up", "down"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="thumbs must be up or down")
     if request.rating is not None and not 1 <= request.rating <= 5:
@@ -569,3 +627,66 @@ async def submit_feedback(db: DbSession, query_id: UUID, request: FeedbackReques
     await db.commit()
     await db.refresh(feedback)
     return FeedbackResponse(id=feedback.id, query_id=query_id, status="accepted")
+
+
+@router.patch(
+    "/conversations/{query_id}/rename",
+    response_model=ConversationMutationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def rename_conversation(
+    db: DbSession,
+    query_id: UUID,
+    request: ConversationRenameRequest,
+) -> ConversationMutationResponse:
+    query = await db.get(Query, query_id)
+    if query is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    normalized_title = " ".join(request.title.split())
+    if not normalized_title:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="title must not be empty")
+    query.conversation_title = normalized_title[:256]
+    await db.commit()
+    return ConversationMutationResponse(query_id=query_id, status="accepted")
+
+
+@router.patch(
+    "/conversations/{query_id}/archive",
+    response_model=ConversationMutationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def archive_conversation(
+    db: DbSession,
+    query_id: UUID,
+    request: ConversationArchiveRequest,
+) -> ConversationMutationResponse:
+    query = await db.get(Query, query_id)
+    if query is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    query.is_archived = request.archived
+    await db.commit()
+    return ConversationMutationResponse(query_id=query_id, status="accepted")
+
+
+@router.delete(
+    "/conversations/{query_id}",
+    response_model=ConversationMutationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def delete_conversation(db: DbSession, query_id: UUID) -> ConversationMutationResponse:
+    query = await db.get(Query, query_id)
+    if query is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    run_ids = (await db.scalars(select(AgentRun.id).where(AgentRun.query_id == query_id))).all()
+    if run_ids:
+        await db.execute(delete(ToolCall).where(ToolCall.run_id.in_(run_ids)))
+        from src.models.agent import TraceEvent
+
+        await db.execute(delete(TraceEvent).where(TraceEvent.run_id.in_(run_ids)))
+        await db.execute(delete(RetrievalResult).where(RetrievalResult.query_id == query_id))
+        await db.execute(delete(AgentRun).where(AgentRun.id.in_(run_ids)))
+    await db.execute(delete(Feedback).where(Feedback.query_id == query_id))
+    await db.execute(delete(Query).where(Query.id == query_id))
+    await db.commit()
+    return ConversationMutationResponse(query_id=query_id, status="accepted")

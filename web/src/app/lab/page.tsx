@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { PageBack } from "@/components/layout/page-back"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { apiJson, LabChunkResult, LabCompareResponse } from "@/lib/api"
 
@@ -51,6 +52,7 @@ export default function LabPage() {
   return (
     <div className="w-full h-full p-6 flex flex-col gap-6 overflow-hidden">
       <Card className="shrink-0 p-4 bg-background/50 backdrop-blur-sm border-border/50 flex items-center gap-4">
+        <PageBack label="返回首页" href="/" />
         <div className="relative flex-1 max-w-2xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
           <Input
@@ -77,11 +79,11 @@ export default function LabPage() {
         </div>
       )}
 
-      <div className="flex gap-6 flex-1 min-h-0">
+      <div className="flex gap-6 flex-1 min-h-0 xl:flex-row flex-col">
         <StrategyColumn
           title="策略 A: 纯向量检索"
           strategy="vector_only"
-          icon={<Database size={16} className="text-blue-500" />}
+          icon={<Database size={16} className="text-foreground" />}
           color="blue"
           chunks={results.vector_only ?? []}
           timingMs={timing.vector_only}
@@ -116,7 +118,7 @@ function StrategyColumn({
 }) {
   const accent =
     color === "blue"
-      ? { bg: "bg-blue-500", text: "text-blue-500", border: "border-blue-500/30" }
+      ? { bg: "bg-border", text: "text-foreground", border: "border-border" }
       : { bg: "bg-purple-500", text: "text-purple-500", border: "border-purple-500/30" }
   return (
     <div className="flex-1 flex flex-col min-w-0">

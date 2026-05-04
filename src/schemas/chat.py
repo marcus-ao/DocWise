@@ -36,3 +36,16 @@ class FeedbackResponse(BaseModel):
     id: UUID
     query_id: UUID
     status: str = "accepted"
+
+
+class ConversationRenameRequest(BaseModel):
+    title: str
+
+
+class ConversationArchiveRequest(BaseModel):
+    archived: bool = True
+
+
+class ConversationMutationResponse(BaseModel):
+    query_id: UUID
+    status: str = "accepted"

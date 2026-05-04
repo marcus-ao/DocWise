@@ -87,7 +87,7 @@ from src.config.redactor import redact_secrets
 
 - `logs/api/`
 - `logs/worker/`
-- `logs/frontend/`
+- `logs/web/`
 - `logs/scripts/` 如脚本需要
 
 `logs/` 是本地运行产物，应保持 ignored。
@@ -137,7 +137,7 @@ from src.config.redactor import redact_secrets
 | Infra/Foundation | `pyproject.toml`, `.gitignore`, `Makefile`, `Dockerfile*`, `docker-compose.yml`, `alembic/`, `src/config/`, `src/db/`, `src/models/`, `src/schemas/` | 环境、schema、迁移、基础连接 |
 | LLM/Document/Tasks | `src/llm/`, `src/document/`, `src/tasks/`, `scripts/ingest_docs.py`, `scripts/download_docs.py`, `data/raw/` | 模型封装、文档解析、chunk、embedding、入库、worker |
 | Retrieval/Agent | `src/retrieval/`, `src/agent/` | 检索、路由、LangGraph、工具、prompt |
-| API/Frontend | `src/api/`, `src/frontend/`, `scripts/smoke_api.ps1` | REST/SSE、依赖注入、Streamlit、客户端 |
+| API/Frontend | `src/api/`, `src/api/client.py`, `web/`, `scripts/smoke_api.ps1` | REST/SSE、依赖注入、前端接口契约、Next.js 客户端 |
 | Observability/Eval/Data | `src/observability/`, `data/mock/`, `data/eval/`, `scripts/generate_mock_data.py`, `scripts/validate_*`, `scripts/export_chunk_index.py` | trace、metrics、eval、fixtures |
 | Docs/Contracts | `docs/`, `docs/contracts/` | 当前事实、接口契约、恢复记录 |
 

@@ -22,7 +22,7 @@ DocWise 的目标是一个企业级开发者知识工作流 Agent：
 | Agent | LangGraph StateGraph，节点在 `src/agent/nodes/`，工具在 `src/agent/tools/` |
 | Retrieval | pgvector vector search + tsvector keyword search + RRF + rerank |
 | Observability | 本地 DB trace first，Langfuse optional |
-| Frontend | Streamlit，多页 app 位于 `src/frontend/` |
+| Frontend | Next.js，前端工程位于 `web/` |
 
 ## 3. 当前目录与职责
 
@@ -40,7 +40,7 @@ DocWise 的目标是一个企业级开发者知识工作流 Agent：
 | `src/tasks/` | arq job entrypoints 和 job status helper |
 | `src/observability/` | trace writer、eval runner、metrics、bad case |
 | `src/api/` | FastAPI app、dependencies、routers |
-| `src/frontend/` | Streamlit app、pages、components、API client |
+| `web/` | Next.js app、组件、页面与前端 API 调用 |
 | `scripts/` | seed、ingest、download、validation、smoke、dev start/stop |
 | `data/mock/` | 工具 mock fixture，必须保留 |
 | `data/eval/` | eval fixture，必须保留 |
@@ -60,11 +60,11 @@ DocWise 的目标是一个企业级开发者知识工作流 Agent：
 | LLM | DeepSeek-compatible chat | 成本和部署摩擦适合 P1 |
 | Embedding/Rerank | Qwen API | 当前验证维度为 2048，质量和接入成本平衡 |
 | Trace | local DB first + Langfuse optional | 本地可跑通，可选外部观测 |
-| 前端 | Streamlit | 快速管理台和演示，后续可替换 |
+| 前端 | Next.js | 当前唯一前端实现，面向正式展示与交互 |
 
 ## 5. 数据与运行契约
 
-- `.env.local.example` 用于 Windows `.venv` 跑 API/worker/frontend，基础设施地址使用 `localhost`。
+- `.env.local.example` 用于 Windows `.venv` 跑 API/worker，本地前端使用 `web/` 下的 Next.js，基础设施地址使用 `localhost`。
 - `.env.docker.example` 用于 Docker app services，服务地址使用 Compose service name。
 - `.env` 可包含真实 key，必须保持 ignored，严禁打印密钥。
 - API、SSE、JSONB、schema 字段统一 `snake_case`。
@@ -170,7 +170,7 @@ pytest: 121 passed
 
 ### 方向一：前端重构 — Next.js + shadcn/ui 专业级 UI
 
-将 Streamlit 管理台替换为独立 Next.js 前端，达到业内主流 AI 产品的展示水准。参考 Perplexity（引用展示）、Langfuse（trace 可视化）、Promptfoo（eval 仪表盘）的 UI 模式。
+以独立 Next.js 前端作为唯一 UI 入口，达到业内主流 AI 产品的展示水准。参考 Perplexity（引用展示）、Langfuse（trace 可视化）、Promptfoo（eval 仪表盘）的 UI 模式。
 
 ### 方向二：RAG 深化 — 检索可视化 + 多轮对话 + Agent 决策透明化
 
@@ -216,7 +216,7 @@ pytest: 121 passed
 | WP-01 Infra/Foundation | `pyproject.toml`, Dockerfile, Compose, Alembic, `src/config/`, `src/db/`, `src/models/`, `src/schemas/` | 已恢复到可运行，本地 infra health、Alembic head、seed 基线可用 | 新增 conversations 表迁移、前端 Docker 集成 |
 | WP-02 LLM/Document/Tasks | `src/llm/`, `src/document/`, `src/tasks/`, `scripts/ingest_docs.py`, `data/raw/` | chunker、ingestion、MinIO bucket、embedding、worker 路径已恢复 | RST parser、真实文档批量入库、大文件处理 |
 | WP-03 Retrieval/Agent | `src/retrieval/`, `src/agent/` | hybrid retrieval、rerank fallback、LangGraph 12 节点主链路完整 | 多轮对话 context_loader、reasoning 事件、检索实验室后端、HyDE |
-| WP-04 API/Frontend | `src/api/`, `src/frontend/`, `web/` (新增) | FastAPI 路由完整，Streamlit 管理台存在 | Next.js 前端 5 页重构、新增 API 端点（conversations/timeline/trends/compare/chunks） |
+| WP-04 API/Frontend | `src/api/`, `web/` | FastAPI 路由完整，Next.js 前端已接入 | 继续补齐前端交互细节与配套 API 端点 |
 | WP-05 Observability/Eval/Data | `src/observability/`, `data/mock/`, `data/eval/` | mock/eval fixture gate 通过，eval cases 为 20 retrieval + 30 qa | 真实文档 eval case 对齐、扩展到 80-100 条、趋势追踪 |
 | Docs/Contracts | `docs/`, `docs/contracts/` | GUIDE/PLAN/AGENT 已完成当前化合并 | 后续改动必须同步权威文档 |
 
@@ -413,7 +413,7 @@ web:
       condition: service_healthy
 ```
 
-Streamlit 前端保留为 admin/debug 工具，不再作为主要用户界面。
+不再保留 Streamlit 前端，所有前端交互统一收敛到 Next.js。
 
 ---
 

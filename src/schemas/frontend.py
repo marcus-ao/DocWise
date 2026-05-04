@@ -11,6 +11,7 @@ class ChatConversationListItem(BaseModel):
     query_id: UUID
     run_id: UUID | None
     title: str
+    is_archived: bool = False
     workspace_id: str | None
     workspace_slug: str | None
     created_at: datetime
@@ -40,6 +41,7 @@ class ChatConversationDetail(BaseModel):
     query_id: UUID
     run_id: UUID | None
     title: str
+    is_archived: bool = False
     workspace_id: str | None
     workspace_slug: str | None
     created_at: datetime

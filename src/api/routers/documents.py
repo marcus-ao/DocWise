@@ -151,12 +151,16 @@ async def list_document_chunks(
 
     stmt = (
         select(DocumentChunk)
-        .where(DocumentChunk.document_id == document_id)
+        .where(DocumentChunk.document_id == document_id, DocumentChunk.is_active.is_(True))
         .order_by(DocumentChunk.chunk_index)
         .limit(limit)
         .offset(offset)
     )
-    count_stmt = select(func.count()).select_from(DocumentChunk).where(DocumentChunk.document_id == document_id)
+    count_stmt = (
+        select(func.count())
+        .select_from(DocumentChunk)
+        .where(DocumentChunk.document_id == document_id, DocumentChunk.is_active.is_(True))
+    )
     rows = (await db.scalars(stmt)).all()
     total = int(await db.scalar(count_stmt) or 0)
     chunks = [

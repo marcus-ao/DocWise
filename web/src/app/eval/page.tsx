@@ -7,6 +7,7 @@ import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip as Rechart
 import { AlertTriangle, BarChart2, CheckCircle, Target } from "lucide-react"
 
 import { Card } from "@/components/ui/card"
+import { PageBack } from "@/components/layout/page-back"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { apiJson, EvalBadCaseItem, EvalTrendItem } from "@/lib/api"
 
@@ -56,6 +57,7 @@ export default function EvalPage() {
     <div className="w-full h-full p-6 flex flex-col gap-6 overflow-hidden">
       <div className="shrink-0 flex items-center justify-between">
         <div>
+          <PageBack label="返回首页" href="/" />
           <h1 className="text-2xl font-semibold tracking-tight">评估仪表盘</h1>
           <p className="text-sm text-muted-foreground mt-1">从 eval_results 聚合 RAG 检索、引用与坏例趋势</p>
         </div>
@@ -63,14 +65,14 @@ export default function EvalPage() {
 
       {error && <div className="text-sm text-red-500">评估数据加载失败：{error}</div>}
 
-      <div className="grid grid-cols-4 gap-6 shrink-0">
-        <MetricCard title="Hit Rate @ 5" value={`${toPercent(latest?.hit_rate_at_5)}%`} icon={Target} color="text-blue-500" />
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 shrink-0">
+        <MetricCard title="Hit Rate @ 5" value={`${toPercent(latest?.hit_rate_at_5)}%`} icon={Target} color="text-foreground" />
         <MetricCard title="MRR" value={(latest?.mrr ?? 0).toFixed(2)} icon={BarChart2} color="text-purple-500" />
         <MetricCard title="Citation Accuracy" value={`${toPercent(latest?.citation_accuracy)}%`} icon={CheckCircle} color="text-green-500" />
         <MetricCard title="Bad Cases" value={String(latest?.bad_case_count ?? badCases.length)} icon={AlertTriangle} color="text-orange-500" />
       </div>
 
-      <div className="flex gap-6 flex-1 min-h-0">
+      <div className="flex gap-6 flex-1 min-h-0 xl:flex-row flex-col">
         <Card className="flex-1 p-6 bg-background/50 backdrop-blur-sm border-border/50 flex flex-col">
           <h3 className="font-semibold mb-6">指标趋势对比</h3>
           <div className="flex-1 min-h-0 w-full">
@@ -91,7 +93,7 @@ export default function EvalPage() {
                       borderRadius: "8px",
                     }}
                   />
-                  <Line type="monotone" dataKey="hitRate" name="Hit Rate %" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="hitRate" name="Hit Rate %" stroke="#5f6b7a" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                   <Line type="monotone" dataKey="accuracy" name="Citation %" stroke="#22c55e" strokeWidth={3} dot={{ r: 4 }} />
                 </LineChart>
               </ResponsiveContainer>
@@ -99,7 +101,7 @@ export default function EvalPage() {
           </div>
         </Card>
 
-        <Card className="w-1/3 p-0 flex flex-col bg-background/50 backdrop-blur-sm border-border/50">
+        <Card className="w-full xl:w-1/3 p-0 flex flex-col bg-background/50 backdrop-blur-sm border-border/50 min-h-[320px]">
           <div className="p-4 border-b border-border/50">
             <h3 className="font-semibold flex items-center gap-2">
               <AlertTriangle size={18} className="text-orange-500" />

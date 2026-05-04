@@ -1,38 +1,72 @@
-import Link from "next/link"
-import { Activity, BarChart2, FileText, FlaskConical, MessageSquare } from "lucide-react"
+"use client"
 
-const ENTRIES = [
-  { href: "/chat", title: "Agent 对话", desc: "流式回答、引用证据与实时思考流", icon: MessageSquare },
-  { href: "/documents", title: "知识库", desc: "上传、重建索引和查看文档状态", icon: FileText },
-  { href: "/traces", title: "执行链路", desc: "查看 Agent 节点时间线和耗时", icon: Activity },
-  { href: "/eval", title: "评估仪表盘", desc: "追踪 RAG 指标与 Bad Cases", icon: BarChart2 },
-  { href: "/lab", title: "检索实验室", desc: "对比 vector、keyword、hybrid 和 rerank", icon: FlaskConical },
+import Link from "next/link"
+import {
+  Activity,
+  Archive,
+  ArrowRight,
+  BarChart2,
+  FileText,
+  FlaskConical,
+  History,
+  MessageSquare,
+} from "lucide-react"
+
+import { useBackendStatus } from "@/components/providers/backend-status-provider"
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+
+const MODULES = [
+  { href: "/chat", title: "Agent 对话", description: "发起新会话，查看引用证据与实时推理过程。", icon: MessageSquare },
+  { href: "/history", title: "历史对话", description: "管理全部非归档会话，支持重命名、归档与删除。", icon: History },
+  { href: "/documents", title: "文档中心", description: "上传文档、查看索引状态、重试失败任务。", icon: FileText },
+  { href: "/traces", title: "执行链路", description: "查看 Agent 节点耗时、执行顺序与链路细节。", icon: Activity },
+  { href: "/eval", title: "评估面板", description: "跟踪 RAG 指标、坏例与批次趋势。", icon: BarChart2 },
+  { href: "/lab", title: "实验室", description: "对比不同检索策略的召回结果与耗时表现。", icon: FlaskConical },
+  { href: "/archive", title: "存档会话", description: "集中查看已归档会话，必要时恢复到历史列表。", icon: Archive },
 ]
 
-export default function Home() {
+export default function HomePage() {
+  const { checked: backendChecked, ready: backendReady, message: backendMessage } = useBackendStatus()
+
   return (
-    <div className="w-full h-full p-6 overflow-y-auto">
-      <div className="max-w-6xl mx-auto flex flex-col gap-6">
-        <header className="pt-2">
-          <h1 className="text-3xl font-semibold tracking-tight">DocWise 控制台</h1>
-          <p className="text-sm text-muted-foreground mt-2">
-            企业开发者知识工作流 Agent：文档 RAG、故障排查、执行链路与评估闭环。
+    <div className="h-full w-full overflow-y-auto">
+      <div className="mx-auto flex max-w-7xl flex-col gap-8 px-6 py-8">
+        <header className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-4xl font-semibold tracking-tight text-foreground">DocWise 控制台</h1>
+          </div>
+          <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
+            面向企业开发团队的知识工作流工作台，覆盖对话、文档、执行链路、评估、实验与会话归档。
           </p>
+          {!backendReady && backendChecked ? (
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-600 dark:text-amber-300">
+              {backendMessage}
+            </div>
+          ) : null}
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {ENTRIES.map((entry) => (
-            <Link
-              key={entry.href}
-              href={entry.href}
-              className="group rounded-xl border border-border/50 bg-background/50 p-5 hover:bg-muted/30 hover:border-primary/30 transition-colors"
-            >
-              <entry.icon size={22} className="text-primary mb-4" />
-              <div className="font-semibold text-lg">{entry.title}</div>
-              <div className="text-sm text-muted-foreground mt-1">{entry.desc}</div>
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {MODULES.map((entry) => (
+            <Link key={entry.href} href={entry.href} className="block">
+              <Card className="h-full border border-border bg-card py-0 shadow-sm transition-colors hover:bg-muted/25 dark:shadow-none">
+                <CardHeader className="space-y-4 px-5 py-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-background text-foreground">
+                      <entry.icon size={20} />
+                    </div>
+                    <ArrowRight size={16} className="mt-1 text-muted-foreground" />
+                  </div>
+                  <div className="space-y-2">
+                    <CardTitle className="text-lg text-foreground">{entry.title}</CardTitle>
+                    <CardDescription className="text-sm leading-6 text-muted-foreground">
+                      {entry.description}
+                    </CardDescription>
+                  </div>
+                </CardHeader>
+              </Card>
             </Link>
           ))}
-        </div>
+        </section>
       </div>
     </div>
   )

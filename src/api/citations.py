@@ -32,7 +32,22 @@ def citation_from_dict(item: dict) -> CitationItem:
 def citations_from_final(final_citations: list | None) -> list[CitationItem]:
     if not final_citations:
         return []
-    return [citation_from_dict(item) for item in final_citations if isinstance(item, dict)]
+    seen: set[tuple[str, str, str]] = set()
+    citations: list[CitationItem] = []
+    for item in final_citations:
+        if not isinstance(item, dict):
+            continue
+        citation = citation_from_dict(item)
+        dedupe_key = (
+            str(citation.chunk_id),
+            citation.chunk_uid,
+            citation.quote,
+        )
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        citations.append(citation)
+    return citations
 
 
 def citations_from_retrieval_rows(rows: list, limit: int = 5) -> list[CitationItem]:

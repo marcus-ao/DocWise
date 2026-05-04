@@ -9,13 +9,13 @@ DocWise 是一个面向企业开发者知识工作的 Agent 项目：用技术�
 | Python | 3.11，推荐使用仓库内 `.venv` |
 | API | FastAPI，入口 `src.api.app:app` |
 | Worker | `arq + Redis`，入口 `src.tasks.worker.WorkerSettings` |
-| Frontend | Streamlit，入口 `src/frontend/app.py` |
+| Frontend | Next.js，入口 `web/` |
 | 数据库 | PostgreSQL + pgvector + tsvector |
 | 对象存储 | MinIO，默认 bucket 为 `docwise-documents` |
 | 模型 | DeepSeek-compatible chat；DashScope/Qwen embedding 与 rerank |
 | 可观测与评估 | 本地 DB trace/eval 为主，Langfuse 可选 |
 
-本地调试推荐：Docker 只跑 `postgres`、`redis`、`minio`；FastAPI、worker、Streamlit 使用 Windows `.venv` 启动。
+本地调试推荐：Docker 只跑 `postgres`、`redis`、`minio`；FastAPI、worker 使用 Windows `.venv` 启动，前端使用 `web/` 下的 Next.js。
 
 ## 快速启动
 
@@ -47,7 +47,7 @@ docker compose up -d postgres redis minio
 | --- | --- |
 | API | http://127.0.0.1:8000 |
 | Swagger | http://127.0.0.1:8000/docs |
-| Streamlit | http://127.0.0.1:8501 |
+| Web | http://127.0.0.1:3000 |
 | MinIO Console | http://localhost:9001 |
 
 停止本地 API、worker、frontend：

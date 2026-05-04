@@ -13,7 +13,7 @@ DocWise 是一个企业级开发者知识工作流 Agent 系统，当前恢复�
 | Python | 3.11，使用仓库内 `.venv` |
 | API | FastAPI，入口 `src.api.app:app` |
 | Worker | `arq + Redis`，入口 `src.tasks.worker.WorkerSettings` |
-| Frontend | Streamlit，入口 `src/frontend/app.py` |
+| Frontend | Next.js，入口 `web/` |
 | 数据库 | PostgreSQL + pgvector + tsvector |
 | 队列/缓存 | Redis |
 | 对象存储 | MinIO，bucket 默认为 `docwise-documents` |
@@ -21,7 +21,7 @@ DocWise 是一个企业级开发者知识工作流 Agent 系统，当前恢复�
 | Embedding/Rerank | DashScope/Qwen，embedding 维度为 2048 |
 | Trace/Eval | 本地数据库 trace/eval 为主，Langfuse 可选 |
 
-本地开发推荐只用 Docker 跑 `postgres`、`redis`、`minio`，API、worker、Streamlit 由 Windows `.venv` 启动。完整 Docker app 服务仍保留在 Compose 中，但日常调试以本指南命令为准。
+本地开发推荐只用 Docker 跑 `postgres`、`redis`、`minio`，API、worker 由 Windows `.venv` 启动，前端使用 `web/` 下的 Next.js。完整 Docker app 服务仍保留在 Compose 中，但日常调试以本指南命令为准。
 
 ## 1. 准备 PowerShell 与虚拟环境
 
@@ -247,7 +247,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\dev_start.ps1
 | --- | --- | --- |
 | FastAPI | http://127.0.0.1:8000 | `logs/api/` |
 | arq worker | `src.tasks.worker.WorkerSettings` | `logs/worker/` |
-| Streamlit | http://127.0.0.1:8501 | `logs/frontend/` |
+| Next.js Web | http://127.0.0.1:3000 | `logs/web/` |
 
 PID 文件写入 `.run/`。停止：
 
@@ -260,7 +260,7 @@ PID 文件写入 `.run/`。停止：
 ```powershell
 curl.exe http://127.0.0.1:8000/healthz
 curl.exe http://127.0.0.1:8000/readyz
-curl.exe http://127.0.0.1:8501/_stcore/health
+curl.exe http://127.0.0.1:3000
 ```
 
 `/readyz` 预期类似：
@@ -415,10 +415,10 @@ curl.exe -H "Authorization: Bearer <ADMIN_API_TOKEN>" "http://127.0.0.1:8000/api
 powershell -ExecutionPolicy Bypass -File .\scripts\smoke_api.ps1
 ```
 
-Streamlit：
+Next.js 前端：
 
 ```powershell
-Start-Process http://127.0.0.1:8501
+Start-Process http://127.0.0.1:3000
 ```
 
 前端验收重点：
@@ -446,15 +446,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\dev_start.ps1
 
 ```powershell
 netstat -ano | findstr ":8000"
-netstat -ano | findstr ":8501"
+netstat -ano | findstr ":3000"
 netstat -ano | findstr ":15432"
 ```
 
 换端口启动 app：
 
 ```powershell
-.\scripts\dev_start.ps1 -ApiPort 8010 -FrontendPort 8510
+.\scripts\dev_start.ps1 -ApiPort 8010
 $env:DOCWISE_API_BASE_URL="http://127.0.0.1:8010/api/v1"
+$env:DOCWISE_API_PROXY_TARGET="http://127.0.0.1:8010"
+$env:NEXT_PUBLIC_DOCWISE_API_BASE_URL="/api/v1"
 ```
 
 ### Worker 不处理任务
@@ -561,7 +563,7 @@ cp .env.example .env
 Phase 1 完成后：
 
 ```bash
-make up          # 启动所有 8 个服务 (PostgreSQL, Redis, MinIO, 后端, Worker, Streamlit 等)
+make up          # 启动所有 8 个服务 (PostgreSQL, Redis, MinIO, 后端, Worker, Next.js 前端等)
 make migrate     # 执行数据库迁移（创建 12 张表 + pgvector + zhparser）
 make seed        # 初始化 5 个默认 workspace + MinIO bucket
 ```
@@ -689,7 +691,7 @@ python scripts/ingest_docs.py --workspace public_tech --dir data/raw/airflow/
 make eval
 
 # 启动前端
-# 访问 http://localhost:8501
+# 访问 http://localhost:3000
 ```
 
 ---
@@ -827,7 +829,7 @@ make format          # 代码格式化 (ruff format)
 |------|-----|------|
 | FastAPI 后端 | http://localhost:8000 | API 服务 |
 | API 文档 | http://localhost:8000/docs | Swagger UI |
-| Streamlit 前端 | http://localhost:8501 | 用户界面 |
+| Next.js 前端 | http://localhost:3000 | 用户界面 |
 | MinIO Console | http://localhost:9001 | 对象存储管理 |
 | Langfuse (可选) | http://localhost:3000 | 可观测性面板 |
 

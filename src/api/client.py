@@ -1,4 +1,4 @@
-"""Async client for the local DocWise API."""
+"""Async helper client for exercising the local DocWise API."""
 from __future__ import annotations
 
 import json

@@ -6,6 +6,8 @@ import { CheckCircle2, FileText, RefreshCw, Trash2, UploadCloud } from "lucide-r
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { PageBack } from "@/components/layout/page-back"
+import { useBackendStatus } from "@/components/providers/backend-status-provider"
 import {
   Table,
   TableBody,
@@ -19,6 +21,7 @@ import { apiForm, apiJson, DocumentListItem, DocumentListResponse, formatShortDa
 const WORKSPACES = ["All", "public_tech", "project_airflow", "project_fastapi", "project_backstage"]
 
 export default function DocumentsPage() {
+  const { ready: backendReady, checked: backendChecked, message: backendMessage } = useBackendStatus()
   const [documents, setDocuments] = React.useState<DocumentListItem[]>([])
   const [workspace, setWorkspace] = React.useState("All")
   const [error, setError] = React.useState<string | null>(null)
@@ -26,6 +29,11 @@ export default function DocumentsPage() {
   const inputRef = React.useRef<HTMLInputElement>(null)
 
   const loadDocuments = React.useCallback(() => {
+    if (!backendReady) {
+      setDocuments([])
+      setError(null)
+      return
+    }
     const query = workspace === "All" ? { limit: 100 } : { workspace_slug: workspace, limit: 100 }
     apiJson<DocumentListResponse>("/documents", { query })
       .then((data) => {
@@ -33,7 +41,7 @@ export default function DocumentsPage() {
         setError(null)
       })
       .catch((err: Error) => setError(err.message))
-  }, [workspace])
+  }, [backendReady, workspace])
 
   React.useEffect(() => {
     loadDocuments()
@@ -88,6 +96,7 @@ export default function DocumentsPage() {
     <div className="w-full h-full p-6 flex flex-col gap-6 overflow-hidden">
       <div className="shrink-0 flex items-center justify-between">
         <div>
+          <PageBack label="返回首页" href="/" />
           <h1 className="text-2xl font-semibold tracking-tight">知识库管理</h1>
           <p className="text-sm text-muted-foreground mt-1">上传、索引和管理 Workspace 文档资产</p>
         </div>
@@ -109,10 +118,20 @@ export default function DocumentsPage() {
         </div>
       </div>
 
-      {error && <div className="text-sm text-muted-foreground">{error}</div>}
+      {error && (
+        <div className="shrink-0 rounded-lg border border-border/50 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          {error}
+        </div>
+      )}
 
-      <div className="flex gap-6 flex-1 min-h-0">
-        <Card className="w-64 shrink-0 flex flex-col bg-background/50 backdrop-blur-sm border-border/50 p-4">
+      {!backendReady && backendChecked && (
+        <div className="shrink-0 rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-500">
+          {backendMessage}
+        </div>
+      )}
+
+      <div className="flex gap-6 flex-1 min-h-0 lg:flex-row flex-col">
+        <Card className="w-full lg:w-64 shrink-0 flex flex-col bg-background/50 backdrop-blur-sm border-border/50 p-4">
           <h3 className="font-semibold text-sm mb-4 text-muted-foreground">Workspaces</h3>
           <div className="space-y-1">
             {WORKSPACES.map((ws) => (
@@ -120,7 +139,7 @@ export default function DocumentsPage() {
                 key={ws}
                 onClick={() => setWorkspace(ws)}
                 className={`w-full text-left px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
-                  workspace === ws ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted text-foreground/80"
+                  workspace === ws ? "bg-muted text-foreground font-medium" : "hover:bg-muted text-foreground/80"
                 }`}
               >
                 {ws}
@@ -171,7 +190,7 @@ export default function DocumentsPage() {
                       {formatShortDate(doc.indexed_at ?? doc.created_at)}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center justify-end gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => void reindexDocument(doc.id)}>
                           <RefreshCw size={14} />
                         </Button>
@@ -201,7 +220,7 @@ function StatusBadge({ status }: { status: string }) {
   }
   if (status === "processing" || status === "pending") {
     return (
-      <Badge variant="secondary" className="bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 animate-pulse">
+      <Badge variant="secondary" className="bg-muted text-foreground hover:bg-muted/90 animate-pulse">
         <RefreshCw size={12} className="mr-1 animate-spin" /> Processing
       </Badge>
     )

@@ -28,7 +28,6 @@ dependencies = [
     "python-multipart>=0.0.12",
     "redis>=5.2.0",
     "sqlalchemy>=2.0.36",
-    "streamlit>=1.40.0",
     "structlog>=24.4.0",
     "uvicorn[standard]>=0.32.0",
 ]
@@ -56,4 +55,3 @@ exclude = [".venv", "data/raw", "data/processed"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["B008", "E501"]
-

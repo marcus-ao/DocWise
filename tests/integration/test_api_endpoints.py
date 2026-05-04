@@ -15,10 +15,10 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
+from src.api import client as api_client
 from src.api import deps
 from src.api.citations import citations_from_final
 from src.api.routers import admin, agent, chat, documents, eval
-from src.frontend import api_client
 from src.models.base import DocType, DocumentStatus, JobStatus
 from src.models.document import Document
 from src.models.eval import EvalResult
@@ -29,6 +29,9 @@ class FakeDb:
         self.item = item
 
     async def commit(self) -> None:
+        return None
+
+    async def scalar(self, stmt: object) -> None:
         return None
 
     async def refresh(self, item: object) -> None:
@@ -82,6 +85,86 @@ def test_persisted_final_citations_preserve_rich_fields() -> None:
     assert citations[0].document_id == document_id
     assert citations[0].document_title == "Guide"
     assert citations[0].quote == "Check scheduler logs."
+
+
+def test_persisted_final_citations_deduplicate_repeated_items() -> None:
+    chunk_id = uuid4()
+    document_id = uuid4()
+    raw = {
+        "chunk_id": str(chunk_id),
+        "chunk_uid": "doc:section:abc123",
+        "document_id": str(document_id),
+        "document_title": "Guide",
+        "section_path": "Troubleshooting",
+        "page_number": 3,
+        "score": 0.91,
+        "quote": "Check scheduler logs.",
+    }
+
+    citations = citations_from_final([raw, dict(raw)])
+
+    assert len(citations) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_deduplicates_persisted_citations(monkeypatch: pytest.MonkeyPatch) -> None:
+    query_id = uuid4()
+    run_id = uuid4()
+    workspace_id = uuid4()
+    created_at = datetime.now(UTC)
+    raw_citation = {
+        "chunk_id": str(uuid4()),
+        "chunk_uid": "doc:section:abc123",
+        "document_id": str(uuid4()),
+        "document_title": "Guide",
+        "section_path": "Troubleshooting",
+        "page_number": 3,
+        "score": 0.91,
+        "quote": "Check scheduler logs.",
+    }
+    query = SimpleNamespace(
+        id=query_id,
+        original_query="How do I debug Airflow?",
+        answer="Answer",
+        workspace_slug="public_tech",
+        created_at=created_at,
+    )
+    run = SimpleNamespace(
+        id=run_id,
+        query_id=query_id,
+        answer="Answer",
+        final_citations=[raw_citation, dict(raw_citation)],
+        created_at=created_at,
+        ended_at=created_at,
+    )
+    workspace = SimpleNamespace(id=workspace_id, slug="public_tech")
+
+    class FakeConversationDb:
+        async def get(self, model: object, key: object) -> object | None:
+            if key == query_id:
+                return query
+            return None
+
+        async def scalar(self, stmt: object) -> object | None:
+            target = getattr(stmt, "column_descriptions", [{}])[0].get("entity")
+            if target is chat.AgentRun:
+                return run
+            if target is chat.Workspace:
+                return workspace
+            return None
+
+        async def scalars(self, stmt: object) -> object:
+            class _Rows:
+                def all(self) -> list[object]:
+                    return []
+
+            return _Rows()
+
+    response = await chat.get_conversation(FakeConversationDb(), query_id)
+
+    assert response.workspace_id == str(workspace_id)
+    assert len(response.messages) == 2
+    assert len(response.messages[1].citations) == 1
 
 
 @pytest.fixture
@@ -163,6 +246,16 @@ async def test_upload_document_duplicate_without_job_returns_conflict(
         files={"file": ("guide.md", b"# Guide", "text/markdown")},
     )
     assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_submit_feedback_rejects_unknown_query_id(client: AsyncClient) -> None:
+    response = await client.post(
+        f"/api/v1/chat/{uuid4()}/feedback",
+        json={"thumbs": "up"},
+    )
+
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

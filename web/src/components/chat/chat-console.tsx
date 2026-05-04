@@ -2,10 +2,11 @@
 
 import * as React from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { Paperclip, Send, Sparkles } from "lucide-react"
+import { DatabaseZap, PanelRightClose, PanelRightOpen, Paperclip, Send } from "lucide-react"
 
 import { AgentReasoning, ReasoningStep } from "@/components/chat/agent-reasoning"
 import { MessageList } from "@/components/chat/message-list"
+import { useBackendStatus } from "@/components/providers/backend-status-provider"
 import { Button } from "@/components/ui/button"
 import {
   apiJson,
@@ -14,6 +15,7 @@ import {
   ConversationDetail,
   ReasoningEvent,
 } from "@/lib/api"
+import { notifyConversationsUpdated } from "@/lib/conversation-events"
 
 const DEFAULT_WORKSPACE = "public_tech"
 
@@ -22,6 +24,7 @@ type ChatConsoleProps = {
 }
 
 export function ChatConsole({ conversationId }: ChatConsoleProps) {
+  const { ready: backendReady, checked: backendChecked, message: backendMessage } = useBackendStatus()
   const [input, setInput] = React.useState("")
   const [messages, setMessages] = React.useState<ChatMessage[]>([
     {
@@ -35,9 +38,11 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
   const [reasoningSteps, setReasoningSteps] = React.useState<ReasoningStep[]>([])
   const [isStreaming, setIsStreaming] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [reasoningWidth, setReasoningWidth] = React.useState(360)
+  const isResizingRef = React.useRef(false)
 
   React.useEffect(() => {
-    if (!conversationId) return
+    if (!conversationId || !backendReady) return
     let cancelled = false
     apiJson<ConversationDetail>(`/chat/conversations/${conversationId}`)
       .then((conversation) => {
@@ -52,7 +57,28 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
     return () => {
       cancelled = true
     }
-  }, [conversationId])
+  }, [backendReady, conversationId])
+
+  React.useEffect(() => {
+    function handlePointerMove(event: PointerEvent) {
+      if (!isResizingRef.current) return
+      const nextWidth = Math.min(520, Math.max(320, window.innerWidth - event.clientX))
+      setReasoningWidth(nextWidth)
+    }
+
+    function handlePointerUp() {
+      isResizingRef.current = false
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", handlePointerUp)
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", handlePointerUp)
+    }
+  }, [])
 
   const mergeReasoning = React.useCallback((event: ReasoningEvent) => {
     setReasoningSteps((prev) => {
@@ -61,11 +87,29 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
         event.reason ?? null,
         event.confidence !== undefined ? `置信度: ${event.confidence.toFixed(2)}` : null,
       ].filter(Boolean)
+      const meta = [
+        event.workspace_policy ? `工作区策略：${event.workspace_policy}` : null,
+        event.workspace_ids?.length ? `工作区范围：${event.workspace_ids.join(", ")}` : null,
+        event.selected_project ? `命中项目：${event.selected_project}` : null,
+        event.chunk_count !== undefined ? `候选片段数：${event.chunk_count}` : null,
+        event.top_k !== undefined ? `重排保留数：${event.top_k}` : null,
+        event.fallback ? "当前节点已降级处理" : null,
+        event.tools?.length ? `计划工具：${event.tools.join(", ")}` : null,
+        event.loop_round !== undefined ? `工具轮次：第 ${event.loop_round} 轮` : null,
+        event.results?.length
+          ? `工具结果：${event.results.map((item) => `${item.tool}(${item.status}) ${item.summary}`).join("；")}`
+          : null,
+        event.run_id ? `运行 ID：${event.run_id}` : null,
+        event.query_id ? `会话 ID：${event.query_id}` : null,
+        event.refused ? `拒答原因：${event.refusal_reason ?? "未提供"}` : null,
+        event.latency_ms !== undefined ? `累计耗时：${event.latency_ms}ms` : null,
+      ].filter(Boolean) as string[]
       const nextStep: ReasoningStep = {
         id: event.node,
         node: event.node,
         title: event.title || event.node,
         detail: detailParts.join(" · ") || "节点执行中",
+        meta,
         status: event.status,
       }
       const existing = prev.findIndex((step) => step.node === event.node)
@@ -78,7 +122,7 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
 
   const handleSend = React.useCallback(async () => {
     const query = input.trim()
-    if (!query || isStreaming) return
+    if (!query || isStreaming || !backendReady) return
 
     const assistantId = `assistant-${Date.now()}`
     setError(null)
@@ -92,11 +136,17 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
     setIsStreaming(true)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, workspace_slug: DEFAULT_WORKSPACE }),
-      })
+      let response: Response
+      try {
+        response = await fetch(`${API_BASE_URL}/chat/stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, workspace_slug: DEFAULT_WORKSPACE }),
+        })
+      } catch (networkError) {
+        const detail = networkError instanceof Error ? networkError.message : "Network request failed"
+        throw new Error(`无法连接后端服务: ${detail}`)
+      }
       if (!response.ok || !response.body) {
         throw new Error(`后端返回 ${response.status}`)
       }
@@ -121,6 +171,58 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
           if (event === "reasoning") {
             mergeReasoning(payload as ReasoningEvent)
           }
+          if (event === "route") {
+            mergeReasoning({
+              node: "query_router",
+              title: "路由决策",
+              decision: payload.route,
+              reason: payload.selected_project ? `命中项目 ${payload.selected_project}` : "已完成路由判断",
+              confidence: payload.confidence,
+              workspace_policy: payload.workspace_policy,
+              workspace_ids: payload.workspace_ids,
+              selected_project: payload.selected_project,
+              status: "complete",
+            })
+          }
+          if (event === "retrieval") {
+            mergeReasoning({
+              node: "hybrid_retriever",
+              title: "混合检索",
+              reason: `已召回 ${payload.chunk_count ?? 0} 个候选片段`,
+              chunk_count: payload.chunk_count,
+              workspace_ids: payload.workspace_ids,
+              status: "complete",
+            })
+          }
+          if (event === "rerank") {
+            mergeReasoning({
+              node: "reranker",
+              title: "结果重排",
+              reason: payload.fallback ? "重排失败，已降级继续" : `保留 ${payload.top_k ?? 0} 个高相关片段`,
+              top_k: payload.top_k,
+              fallback: payload.fallback,
+              status: payload.fallback ? "error" : "complete",
+            })
+          }
+          if (event === "tool_call") {
+            mergeReasoning({
+              node: "tool_executor",
+              title: "工具执行",
+              reason: "开始执行工具调用",
+              tools: payload.tools,
+              loop_round: payload.loop_round,
+              status: "active",
+            })
+          }
+          if (event === "tool_result") {
+            mergeReasoning({
+              node: "tool_executor",
+              title: "工具执行",
+              reason: "工具调用已返回结果",
+              results: payload.results,
+              status: "complete",
+            })
+          }
           if (event === "token" && payload.content) {
             setMessages((prev) =>
               prev.map((message) =>
@@ -134,6 +236,20 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
               setMessages((prev) =>
                 prev.map((message) => (message.id === assistantId ? { ...message, content } : message))
               )
+            }
+            if (event === "done") {
+              notifyConversationsUpdated()
+              mergeReasoning({
+                node: "answer_generator",
+                title: "答案生成",
+                reason: payload.refused ? "本轮请求已结束，结果为拒答" : "本轮请求已完成并写入会话列表",
+                run_id: payload.run_id,
+                query_id: payload.query_id,
+                latency_ms: payload.latency_ms,
+                refused: payload.refused,
+                refusal_reason: payload.refusal_reason,
+                status: payload.refused ? "error" : "complete",
+              })
             }
           }
           if (event === "citation" && payload.citations) {
@@ -159,67 +275,97 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
     } finally {
       setIsStreaming(false)
     }
-  }, [input, isStreaming, mergeReasoning])
+  }, [backendReady, input, isStreaming, mergeReasoning])
 
   return (
-    <div className="flex w-full h-full relative overflow-hidden">
-      <div className="flex-1 flex flex-col h-full relative z-10">
-        <header className="h-16 flex items-center justify-between px-6 shrink-0 bg-background/50 backdrop-blur-md border-b border-border/50">
-          <div className="flex items-center gap-3">
-            <div className="px-3 py-1.5 rounded-md bg-secondary/50 text-sm font-medium text-secondary-foreground flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-green-500" />
-              Public Tech Workspace
+    <div className="relative flex h-full w-full overflow-hidden">
+      <div className="relative z-10 flex h-full flex-1 flex-col">
+        <header className="h-16 shrink-0 border-b border-border/80 bg-background px-6 shadow-sm">
+          <div className="flex h-full items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-sm">
+                <span className="h-2 w-2 rounded-full bg-green-500" />
+                Public Tech Workspace
+              </div>
+              {!backendReady && backendChecked ? (
+                <span className="max-w-[460px] truncate text-xs text-amber-500">{backendMessage}</span>
+              ) : error ? (
+                <span className="max-w-[360px] truncate text-xs text-red-500">{error}</span>
+              ) : null}
             </div>
-            {error && <span className="text-xs text-red-500 truncate max-w-[360px]">{error}</span>}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:bg-muted"
+              onClick={() => setShowReasoning(!showReasoning)}
+            >
+              {showReasoning ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+            </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2 text-muted-foreground"
-            onClick={() => setShowReasoning(!showReasoning)}
-          >
-            <Sparkles size={16} className={showReasoning ? "text-primary" : ""} />
-            Agent 思考流
-          </Button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 md:px-10 py-6 scroll-smooth">
-          <div className="max-w-3xl mx-auto">
-            <MessageList messages={messages} />
+        <div className="flex-1 overflow-y-auto px-4 py-6 md:px-10">
+          <div className="mx-auto max-w-3xl">
+            {!backendReady && backendChecked ? (
+              <div className="flex min-h-[420px] items-center">
+                <div className="w-full rounded-3xl border border-border bg-card px-8 py-10 shadow-[0_16px_40px_rgba(15,23,42,0.06)] dark:shadow-none">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
+                      <DatabaseZap size={20} />
+                    </div>
+                    <div className="space-y-3">
+                      <h2 className="text-xl font-semibold text-foreground">后端服务暂未连接</h2>
+                      <p className="max-w-2xl text-sm leading-7 text-muted-foreground">
+                        {backendMessage ?? "请先启动 API、Redis 和数据库，再刷新页面。"}
+                      </p>
+                      <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground">
+                        当前仍可浏览历史、文档、评估等页面结构；后端恢复后刷新页面，即可继续使用对话、历史和检索功能。
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <MessageList messages={messages} />
+            )}
           </div>
         </div>
 
-        <div className="p-4 shrink-0 bg-gradient-to-t from-background via-background to-transparent">
-          <div className="max-w-3xl mx-auto relative group">
-            <div className="absolute inset-0 bg-primary/5 rounded-2xl blur-xl group-focus-within:bg-primary/10 transition-colors duration-500" />
-            <div className="relative flex items-end gap-2 bg-background/80 backdrop-blur-xl border border-border/50 shadow-sm rounded-2xl p-2 transition-shadow focus-within:shadow-md focus-within:border-primary/30">
-              <Button variant="ghost" size="icon" className="shrink-0 text-muted-foreground rounded-xl h-10 w-10 hover:bg-muted">
+        <div className="shrink-0 p-4">
+          <div className="relative mx-auto max-w-3xl">
+            <div className="relative flex items-end gap-2 rounded-2xl border border-border bg-card p-2 shadow-[0_14px_40px_rgba(15,23,42,0.08)] dark:shadow-none">
+              <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 rounded-xl text-muted-foreground hover:bg-muted">
                 <Paperclip size={18} />
               </Button>
               <textarea
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
+                  if (event.key === "Enter" && !event.shiftKey && backendReady) {
                     event.preventDefault()
                     void handleSend()
                   }
                 }}
-                placeholder="询问 Airflow、K8s、API、故障日志或项目文档..."
-                className="flex-1 max-h-48 min-h-[40px] bg-transparent border-none resize-none focus:ring-0 text-[15px] leading-relaxed py-2 outline-none placeholder:text-muted-foreground/70"
+                disabled={!backendReady}
+                placeholder={backendReady ? "询问 Airflow、K8s、API、故障日志或项目文档..." : "后端未连接，暂时无法发起对话"}
+                className="min-h-[40px] max-h-48 flex-1 resize-none border-none bg-transparent py-2 text-[15px] font-medium leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:ring-0 disabled:cursor-not-allowed disabled:text-slate-900 dark:disabled:text-muted-foreground dark:placeholder:text-muted-foreground"
                 rows={1}
               />
               <Button
                 size="icon"
                 onClick={() => void handleSend()}
-                disabled={!input.trim() || isStreaming}
-                className="shrink-0 rounded-xl h-10 w-10 bg-primary/90 hover:bg-primary text-primary-foreground shadow-sm transition-transform active:scale-95 disabled:opacity-50"
+                disabled={!input.trim() || isStreaming || !backendReady}
+                className="h-10 w-10 shrink-0 rounded-xl bg-primary/90 text-primary-foreground shadow-sm transition-transform hover:bg-primary active:scale-95 disabled:opacity-50"
               >
                 <Send size={18} className="ml-0.5" />
               </Button>
             </div>
-            <div className="text-center mt-2 text-xs text-muted-foreground/60">
-              {isStreaming ? "Agent 正在检索、推理并生成回答..." : "回答会附带引用证据，请在执行操作前核实。"}
+            <div className="mt-2 text-center text-xs text-muted-foreground/80">
+              {!backendReady && backendChecked
+                ? "后端恢复后刷新页面，即可继续使用对话、历史和检索功能。"
+                : isStreaming
+                  ? "Agent 正在检索、推理并生成回答..."
+                  : "回答会附带引用证据，请在执行操作前核实。"}
             </div>
           </div>
         </div>
@@ -229,12 +375,27 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
         {showReasoning && (
           <motion.div
             initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 320, opacity: 1 }}
+            animate={{ width: reasoningWidth, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="shrink-0 h-full bg-muted/10 border-l border-border/50 overflow-hidden"
+            className="relative h-full shrink-0 border-l border-border bg-background"
           >
-            <div className="w-[320px] h-full flex flex-col">
+            <button
+              type="button"
+              aria-label="调整思考流面板宽度"
+              className="absolute left-0 top-0 z-20 h-full w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
+              onPointerDown={() => {
+                isResizingRef.current = true
+                document.body.style.cursor = "col-resize"
+                document.body.style.userSelect = "none"
+              }}
+            />
+            <div className="relative flex h-full min-h-0 flex-col overflow-hidden" style={{ width: reasoningWidth }}>
+              <button
+                type="button"
+                aria-label="占位拖拽手柄"
+                className="pointer-events-none absolute left-0 top-0 h-full w-2 opacity-0"
+              />
               <AgentReasoning steps={reasoningSteps} />
             </div>
           </motion.div>

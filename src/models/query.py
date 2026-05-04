@@ -23,6 +23,8 @@ class Query(Base):
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     refused: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     refusal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    conversation_title: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 

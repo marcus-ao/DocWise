@@ -12,8 +12,10 @@ Get-ChildItem -LiteralPath $RunDir -Filter "docwise-*.pid" | ForEach-Object {
     $pidValue = [int](Get-Content -LiteralPath $pidPath -Raw)
     $process = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
     if ($process) {
-        Stop-Process -Id $pidValue -Force
+        & taskkill.exe /PID $pidValue /T /F | Out-Null
         Write-Host "Stopped $($_.BaseName) with PID $pidValue"
     }
-    Remove-Item -LiteralPath $pidPath -Force
+    if (Test-Path -LiteralPath $pidPath) {
+        Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
+    }
 }

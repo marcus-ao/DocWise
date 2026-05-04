@@ -6,6 +6,7 @@ import { Activity, Clock, Database, Layers } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
+import { PageBack } from "@/components/layout/page-back"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   apiJson,
@@ -68,11 +69,12 @@ export default function TracesPage() {
   }, [selectedTrace])
 
   return (
-    <div className="flex w-full h-full p-6 gap-6">
-      <Card className="w-1/3 h-full flex flex-col bg-background/50 backdrop-blur-sm border-border/50">
+    <div className="flex w-full h-full p-6 gap-6 xl:flex-row flex-col">
+      <Card className="w-full xl:w-1/3 h-[320px] xl:h-full flex flex-col bg-background/50 backdrop-blur-sm border-border/50">
         <div className="p-4 border-b border-border/50 shrink-0">
+          <PageBack label="返回首页" href="/" />
           <h2 className="font-semibold text-lg flex items-center gap-2">
-            <Activity className="text-primary" size={20} />
+            <Activity className="text-foreground" size={20} />
             最近运行
           </h2>
         </div>
@@ -87,7 +89,7 @@ export default function TracesPage() {
                 onClick={() => setSelectedTrace(trace)}
                 className={`w-full text-left p-3 rounded-xl cursor-pointer transition-all ${
                   selectedTrace?.run_id === trace.run_id
-                    ? "bg-primary/10 border-primary/20 border"
+                    ? "bg-muted border-border border"
                     : "hover:bg-muted border border-transparent"
                 }`}
               >
@@ -107,14 +109,14 @@ export default function TracesPage() {
         </ScrollArea>
       </Card>
 
-      <Card className="flex-1 h-full flex flex-col bg-background/50 backdrop-blur-sm border-border/50 overflow-hidden relative">
+      <Card className="flex-1 h-full min-h-[420px] flex flex-col bg-background/50 backdrop-blur-sm border-border/50 overflow-hidden relative">
         <div className="p-5 border-b border-border/50 shrink-0 flex items-center justify-between bg-background/50">
           <div>
             <h3 className="font-medium text-lg mb-1">{selectedTrace?.query ?? "请选择一次运行"}</h3>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="font-mono">{selectedTrace?.run_id ?? "-"}</span>
               <span>•</span>
-              <span className="text-primary">{formatLatency(totalLatency)} 总耗时</span>
+              <span className="text-foreground">{formatLatency(totalLatency)} 总耗时</span>
             </div>
           </div>
         </div>
@@ -139,12 +141,12 @@ export default function TracesPage() {
 function TraceNode({ node, delay }: { node: TraceTimelineNode; delay: number }) {
   const colors =
     {
-      route: "bg-blue-500/20 text-blue-500 border-blue-500/30",
+      route: "bg-muted text-foreground border-border",
       retrieval: "bg-green-500/20 text-green-500 border-green-500/30",
       check: "bg-slate-500/20 text-slate-500 border-slate-500/30",
       tool: "bg-orange-500/20 text-orange-500 border-orange-500/30",
       llm: "bg-purple-500/20 text-purple-500 border-purple-500/30",
-    }[node.type] || "bg-primary/20 text-primary border-primary/30"
+    }[node.type] || "bg-muted text-foreground border-border"
 
   const icon =
     {

@@ -1,5 +1,4 @@
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_DOCWISE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1"
+export const API_BASE_URL = process.env.NEXT_PUBLIC_DOCWISE_API_BASE_URL ?? "/api/v1"
 
 export type Citation = {
   chunk_id: string
@@ -25,6 +24,7 @@ export type ConversationListItem = {
   query_id: string
   run_id: string | null
   title: string
+  is_archived: boolean
   workspace_id: string | null
   workspace_slug: string | null
   created_at: string
@@ -46,11 +46,23 @@ export type ConversationDetail = {
   query_id: string
   run_id: string | null
   title: string
+  is_archived: boolean
   workspace_id: string | null
   workspace_slug: string | null
   created_at: string
   updated_at: string
   messages: ChatMessage[]
+}
+
+export type ConversationMutationResponse = {
+  query_id: string
+  status: string
+}
+
+export type ReasoningToolResult = {
+  tool: string
+  status: string
+  summary: string
 }
 
 export type ReasoningEvent = {
@@ -59,6 +71,22 @@ export type ReasoningEvent = {
   decision?: string
   reason?: string
   confidence?: number
+  workspace_policy?: string
+  workspace_ids?: string[]
+  selected_project?: string | null
+  chunk_count?: number
+  top_k?: number
+  fallback?: boolean
+  tools?: string[]
+  loop_round?: number
+  results?: ReasoningToolResult[]
+  query_id?: string
+  run_id?: string
+  answer?: string
+  latency_ms?: number
+  refused?: boolean
+  refusal_reason?: string | null
+  citations?: Citation[]
   status: "active" | "complete" | "error"
 }
 
@@ -164,6 +192,12 @@ type ApiOptions = RequestInit & {
   query?: Record<string, string | number | boolean | null | undefined>
 }
 
+type BackendUnavailablePayload = {
+  error?: string
+  message?: string
+  detail?: string
+}
+
 export class ApiError extends Error {
   status: number
 
@@ -176,38 +210,98 @@ export class ApiError extends Error {
 
 function apiUrl(path: string, query?: ApiOptions["query"]) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
-  const url = new URL(`${API_BASE_URL}${normalizedPath}`)
+  const base = API_BASE_URL.replace(/\/$/, "")
+  const rawUrl = `${base}${normalizedPath}`
+  const url =
+    rawUrl.startsWith("http://") || rawUrl.startsWith("https://")
+      ? new URL(rawUrl)
+      : new URL(rawUrl, "http://localhost")
+
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== null && value !== undefined && value !== "") {
       url.searchParams.set(key, String(value))
     }
   }
-  return url.toString()
+
+  return rawUrl.startsWith("http://") || rawUrl.startsWith("https://")
+    ? url.toString()
+    : `${url.pathname}${url.search}`
+}
+
+async function readError(response: Response) {
+  const detail = await response.text()
+  try {
+    const payload = JSON.parse(detail) as BackendUnavailablePayload
+    if (payload.error === "backend_unavailable") {
+      return payload.message ?? "后端服务未连接"
+    }
+    if (payload.message) {
+      return payload.message
+    }
+  } catch {
+    // fall through
+  }
+  return detail || response.statusText
 }
 
 export async function apiJson<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const { query, headers, ...init } = options
-  const response = await fetch(apiUrl(path, query), {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
-  })
-  if (!response.ok) {
-    const detail = await response.text()
-    throw new ApiError(response.status, detail || response.statusText)
+  let response: Response
+
+  try {
+    response = await fetch(apiUrl(path, query), {
+      ...init,
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network request failed"
+    throw new ApiError(0, `无法连接后端服务: ${message}`)
   }
+
+  if (!response.ok) {
+    const detail = await readError(response)
+    throw new ApiError(response.status, detail)
+  }
+
   return response.json() as Promise<T>
 }
 
 export async function apiForm<T>(path: string, body: FormData): Promise<T> {
-  const response = await fetch(apiUrl(path), { method: "POST", body })
-  if (!response.ok) {
-    const detail = await response.text()
-    throw new ApiError(response.status, detail || response.statusText)
+  let response: Response
+
+  try {
+    response = await fetch(apiUrl(path), { method: "POST", body, cache: "no-store" })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network request failed"
+    throw new ApiError(0, `无法连接后端服务: ${message}`)
   }
+
+  if (!response.ok) {
+    const detail = await readError(response)
+    throw new ApiError(response.status, detail)
+  }
+
   return response.json() as Promise<T>
+}
+
+export async function apiVoid(path: string, init: RequestInit): Promise<void> {
+  let response: Response
+
+  try {
+    response = await fetch(apiUrl(path), { ...init, cache: "no-store" })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network request failed"
+    throw new ApiError(0, `无法连接后端服务: ${message}`)
+  }
+
+  if (!response.ok) {
+    const detail = await readError(response)
+    throw new ApiError(response.status, detail)
+  }
 }
 
 export function formatShortDate(value?: string | null) {

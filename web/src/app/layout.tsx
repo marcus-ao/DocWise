@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import { Sidebar } from "@/components/layout/sidebar";
+import { BackendStatusProvider } from "@/components/providers/backend-status-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Sidebar } from "@/components/layout/sidebar";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -37,12 +38,14 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange={false}
         >
-          <TooltipProvider>
-            <Sidebar />
-            <main className="flex-1 flex flex-col min-w-0 bg-muted/20 transition-colors duration-500">
-              {children}
-            </main>
-          </TooltipProvider>
+          <BackendStatusProvider>
+            <TooltipProvider>
+              <Sidebar />
+              <main className="flex-1 flex min-w-0 flex-col bg-muted/20 transition-colors duration-500 dark:bg-background">
+                {children}
+              </main>
+            </TooltipProvider>
+          </BackendStatusProvider>
         </ThemeProvider>
       </body>
     </html>
