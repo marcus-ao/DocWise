@@ -6,6 +6,7 @@ import { Activity, Clock, Database, Layers } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { PageBack } from "@/components/layout/page-back"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -26,13 +27,16 @@ type TraceListResponse = {
 
 export default function TracesPage() {
   const [traces, setTraces] = React.useState<TraceListItem[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
   const [selectedTrace, setSelectedTrace] = React.useState<TraceListItem | null>(null)
   const [timeline, setTimeline] = React.useState<TraceTimelineNode[]>([])
+  const [isTimelineLoading, setIsTimelineLoading] = React.useState(false)
   const [totalLatency, setTotalLatency] = React.useState(0)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
+    setIsLoading(true)
     apiJson<TraceListResponse>("/traces", { query: { limit: 30 } })
       .then((data) => {
         if (cancelled) return
@@ -41,6 +45,9 @@ export default function TracesPage() {
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
       })
     return () => {
       cancelled = true
@@ -53,6 +60,7 @@ export default function TracesPage() {
       return
     }
     let cancelled = false
+    setIsTimelineLoading(true)
     apiJson<TraceTimelineResponse>(`/traces/${selectedTrace.run_id}/timeline`)
       .then((data) => {
         if (!cancelled) {
@@ -63,21 +71,27 @@ export default function TracesPage() {
       .catch((err: Error) => {
         if (!cancelled) setError(err.message)
       })
+      .finally(() => {
+        if (!cancelled) setIsTimelineLoading(false)
+      })
     return () => {
       cancelled = true
     }
   }, [selectedTrace])
 
   return (
-    <div className="flex w-full h-full p-6 gap-6 xl:flex-row flex-col">
-      <Card className="w-full xl:w-1/3 h-[320px] xl:h-full flex flex-col bg-background/50 backdrop-blur-sm border-border/50">
-        <div className="p-4 border-b border-border/50 shrink-0">
-          <PageBack label="返回首页" href="/" />
-          <h2 className="font-semibold text-lg flex items-center gap-2">
-            <Activity className="text-foreground" size={20} />
-            最近运行
-          </h2>
-        </div>
+    <div className="flex w-full h-full p-6 flex-col gap-4">
+      <div className="shrink-0">
+        <PageBack label="返回控制台" href="/" />
+      </div>
+      <div className="flex flex-1 gap-6 min-h-0 xl:flex-row flex-col overflow-hidden">
+        <Card className="w-full xl:w-1/3 h-[320px] xl:h-full flex flex-col bg-background/50 backdrop-blur-sm border-border/50">
+          <div className="p-4 border-b border-border/50 shrink-0">
+            <h2 className="font-semibold text-lg flex items-center gap-2">
+              <Activity className="text-foreground" size={20} />
+              最近运行
+            </h2>
+          </div>
         <ScrollArea className="flex-1 p-2">
           <div className="space-y-2">
             {traces.length === 0 && (
@@ -135,6 +149,7 @@ export default function TracesPage() {
         </ScrollArea>
       </Card>
     </div>
+  </div>
   )
 }
 

@@ -6,6 +6,7 @@ import { CheckCircle2, FileText, RefreshCw, Trash2, UploadCloud } from "lucide-r
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { PageBack } from "@/components/layout/page-back"
 import { useBackendStatus } from "@/components/providers/backend-status-provider"
 import {
@@ -23,6 +24,7 @@ const WORKSPACES = ["All", "public_tech", "project_airflow", "project_fastapi", 
 export default function DocumentsPage() {
   const { ready: backendReady, checked: backendChecked, message: backendMessage } = useBackendStatus()
   const [documents, setDocuments] = React.useState<DocumentListItem[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
   const [workspace, setWorkspace] = React.useState("All")
   const [error, setError] = React.useState<string | null>(null)
   const [isUploading, setIsUploading] = React.useState(false)
@@ -31,9 +33,11 @@ export default function DocumentsPage() {
   const loadDocuments = React.useCallback(() => {
     if (!backendReady) {
       setDocuments([])
+      setIsLoading(false)
       setError(null)
       return
     }
+    setIsLoading(true)
     const query = workspace === "All" ? { limit: 100 } : { workspace_slug: workspace, limit: 100 }
     apiJson<DocumentListResponse>("/documents", { query })
       .then((data) => {
@@ -41,6 +45,7 @@ export default function DocumentsPage() {
         setError(null)
       })
       .catch((err: Error) => setError(err.message))
+      .finally(() => setIsLoading(false))
   }, [backendReady, workspace])
 
   React.useEffect(() => {
@@ -96,7 +101,7 @@ export default function DocumentsPage() {
     <div className="w-full h-full p-6 flex flex-col gap-6 overflow-hidden">
       <div className="shrink-0 flex items-center justify-between">
         <div>
-          <PageBack label="返回首页" href="/" />
+          <PageBack label="返回控制台" href="/" />
           <h1 className="text-2xl font-semibold tracking-tight">知识库管理</h1>
           <p className="text-sm text-muted-foreground mt-1">上传、索引和管理 Workspace 文档资产</p>
         </div>
@@ -162,14 +167,25 @@ export default function DocumentsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {documents.length === 0 && (
+                {isLoading ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={`skeleton-${i}`}>
+                      <TableCell><Skeleton className="h-5 w-48" /></TableCell>
+                      <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                      <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                      <TableCell className="text-right"><Skeleton className="h-5 w-8 ml-auto" /></TableCell>
+                      <TableCell className="text-right"><Skeleton className="h-5 w-32 ml-auto" /></TableCell>
+                      <TableCell></TableCell>
+                    </TableRow>
+                  ))
+                ) : documents.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
                       当前筛选下暂无文档。
                     </TableCell>
                   </TableRow>
-                )}
-                {documents.map((doc) => (
+                ) : null}
+                {!isLoading && documents.map((doc) => (
                   <TableRow key={doc.id} className="border-border/50 hover:bg-muted/30 transition-colors group">
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">

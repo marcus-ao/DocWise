@@ -265,6 +265,32 @@ async def complete_agent_run(
         await logger.awarning("complete_agent_run_failed", error=str(exc), run_id=str(run_id))
 
 
+async def update_agent_run_progress(
+    run_id: str | UUID,
+    answer: str | None = None,
+) -> None:
+    """Persist partial streaming answer while the run is still running. Never throws."""
+    try:
+        rid = _to_uuid(run_id)
+        async with async_session_factory() as session:
+            agent_run = await session.scalar(select(AgentRun).where(AgentRun.id == rid))
+            if agent_run is None:
+                await logger.awarning("update_agent_run_progress_not_found", run_id=str(run_id))
+                return
+
+            agent_run.answer = answer
+
+            query = await session.scalar(select(Query).where(Query.id == agent_run.query_id))
+            if query is not None:
+                query.answer = answer
+
+            await session.commit()
+
+        await logger.ainfo("agent_run_progress_updated", run_id=str(run_id), answer_len=len(answer or ""))
+    except Exception as exc:
+        await logger.awarning("update_agent_run_progress_failed", error=str(exc), run_id=str(run_id))
+
+
 async def write_trace_event(
     run_id: str | UUID,
     node_name: str,

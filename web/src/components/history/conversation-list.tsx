@@ -17,6 +17,7 @@ import { PageBack } from "@/components/layout/page-back"
 import { useBackendStatus } from "@/components/providers/backend-status-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,6 +54,7 @@ export function ConversationList({
 }: ConversationListProps) {
   const { ready: backendReady, checked: backendChecked, message: backendMessage } = useBackendStatus()
   const [items, setItems] = React.useState<ConversationListItem[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
   const [search, setSearch] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
   const [renamingId, setRenamingId] = React.useState<string | null>(null)
@@ -63,10 +65,12 @@ export function ConversationList({
   const loadConversations = React.useCallback(async () => {
     if (!backendReady) {
       setItems([])
+      setIsLoading(false)
       setError(null)
       return
     }
 
+    setIsLoading(true)
     try {
       const data = await apiJson<ConversationListResponse>("/chat/conversations", {
         cache: "no-store",
@@ -76,6 +80,8 @@ export function ConversationList({
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载会话列表失败")
+    } finally {
+      setIsLoading(false)
     }
   }, [archived, backendReady])
 
@@ -146,9 +152,11 @@ export function ConversationList({
 
   return (
     <div className="flex h-full w-full flex-col gap-6 overflow-hidden p-6">
+      <div className="shrink-0">
+        <PageBack label={backLabel} href={backHref} />
+      </div>
       <div className="shrink-0 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <PageBack label={backLabel} href={backHref} />
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>

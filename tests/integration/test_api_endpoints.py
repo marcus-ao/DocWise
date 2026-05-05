@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -538,7 +539,7 @@ async def test_chat_stream_returns_ordered_sse_chain(client: AsyncClient, monkey
     body = response.text
     assert response.status_code == 200
     events = _sse_events(body)
-    assert events == ["route", "done"]
+    assert events == ["run", "route", "done"]
     assert '"query_id"' in body
 
 
@@ -616,6 +617,7 @@ async def test_real_app_chat_stream_emits_full_sse_chain(monkeypatch: pytest.Mon
 
     assert response.status_code == 200
     assert _sse_events(response.text) == [
+        "run",
         "reasoning",
         "route",
         "reasoning",
@@ -658,6 +660,48 @@ async def test_chat_stream_error_type_timeout(client: AsyncClient, monkeypatch: 
     monkeypatch.setattr(chat, "complete_agent_run", AsyncMock(return_value=None))
     response = await client.post("/api/v1/chat/stream", json={"query": "test"})
     assert '"error_type": "timeout"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_cancel_chat_run_sets_cancel_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    query_id = uuid4()
+    run_id = uuid4()
+    run = SimpleNamespace(id=run_id, query_id=query_id)
+
+    class FakeCancelDb:
+        async def get(self, model: object, key: object) -> object | None:
+            if key == run_id:
+                return run
+            return None
+
+    cancel_event = asyncio.Event()
+    monkeypatch.setitem(chat.RUN_CANCEL_EVENTS, str(run_id), cancel_event)
+
+    response = await chat.cancel_chat_run(FakeCancelDb(), run_id)
+
+    assert cancel_event.is_set() is True
+    assert response.query_id == query_id
+    assert response.status == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_persist_partial_completion_prefers_partial_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded: dict[str, object] = {}
+
+    async def fake_complete_agent_run(**kwargs: object) -> None:
+        recorded.update(kwargs)
+
+    monkeypatch.setattr(chat, "complete_agent_run", fake_complete_agent_run)
+
+    await chat._persist_partial_completion(
+        run_id=str(uuid4()),
+        final_state={"trace_id": str(uuid4()), "route": "tech_general", "answer": "full answer"},
+        partial_answer="partial answer",
+        start_time=0.0,
+    )
+
+    assert recorded["answer"] == "partial answer"
+    assert recorded["status"] == "succeeded"
 
 
 @pytest.mark.asyncio

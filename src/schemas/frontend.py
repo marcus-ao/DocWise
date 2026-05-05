@@ -47,6 +47,7 @@ class ChatConversationDetail(BaseModel):
     workspace_slug: str | None
     created_at: datetime
     updated_at: datetime
+    status: str | None = None
     messages: list[ChatConversationMessage]
     trace_events: list[TraceEventItem] = Field(default_factory=list)
 

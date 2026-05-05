@@ -2,15 +2,18 @@
 
 import * as React from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { DatabaseZap, PanelRightClose, PanelRightOpen, Paperclip, Send } from "lucide-react"
+import { DatabaseZap, PanelRightClose, PanelRightOpen, Paperclip, Send, ArrowDown, Maximize2, Minimize2 } from "lucide-react"
 
 import { AgentReasoning, ReasoningStep } from "@/components/chat/agent-reasoning"
 import { MessageList } from "@/components/chat/message-list"
 import { useBackendStatus } from "@/components/providers/backend-status-provider"
+import { PageBack } from "@/components/layout/page-back"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import {
   apiJson,
   API_BASE_URL,
+  apiVoid,
   ChatMessage,
   ConversationDetail,
   ReasoningEvent,
@@ -19,6 +22,8 @@ import { setActiveConversation } from "@/lib/active-conversation"
 import { notifyConversationsUpdated } from "@/lib/conversation-events"
 
 const DEFAULT_WORKSPACE = "public_tech"
+const COLLAPSED_TEXTAREA_HEIGHT = 40
+const EXPANDED_TEXTAREA_HEIGHT = 240
 
 function StreamingSquare() {
   return (
@@ -74,11 +79,92 @@ function summarizeReasoningDetail(detail: {
   return detail.status === "running" ? "节点执行中" : "节点已完成"
 }
 
-type ChatConsoleProps = {
-  conversationId?: string
+function MessageDirectory({
+  messages,
+  onNavigate,
+}: {
+  messages: ChatMessage[]
+  onNavigate: (id: string) => void
+}) {
+  const [isHovered, setIsHovered] = React.useState(false)
+  const userMessages = messages.filter((m) => m.role === "user" && m.id !== "welcome")
+
+  if (userMessages.length <= 1) return null
+
+  // Only show the last 7 indicators in minimized mode
+  const minimizedMessages = userMessages.slice(-7)
+
+  return (
+    <motion.div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className="absolute right-3 top-1/2 z-40 flex -translate-y-1/2 flex-col items-end px-1 py-6 group/nav"
+      style={{ height: "fit-content", minWidth: "48px" }}
+    >
+      <AnimatePresence mode="wait">
+        {isHovered ? (
+          <motion.div
+            key="expanded"
+            initial={{ opacity: 0, x: 20, scale: 0.9 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: 20, scale: 0.9 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className="flex w-[320px] flex-col gap-0.5 rounded-[20px] border border-border bg-card/75 p-1.5 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.15)] ring-1 ring-black/5 backdrop-blur-2xl"
+          >
+            <div className="mb-1 flex items-center justify-center border-b border-border/40 px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-foreground/70">交互目录</span>
+              </div>
+            </div>
+            {/* Scrollable area: show up to 10 items, then scrollbar */}
+            <div className="max-h-[396px] overflow-y-auto pr-1 custom-scrollbar">
+              {userMessages.map((msg, i) => (
+                <button
+                  key={msg.id}
+                  onClick={() => onNavigate(msg.id)}
+                  className="group/item w-full text-left p-2.5 rounded-xl transition-all hover:bg-muted flex items-start gap-2.5 active:scale-[0.98]"
+                >
+                  <span className="shrink-0 text-[11px] font-mono text-muted-foreground/50 mt-0.5 min-w-[20px]">
+                    {String(i + 1).padStart(2, "0")}.
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-tight text-foreground/70 transition-colors group-hover/item:text-foreground">
+                    {msg.content}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        ) : (
+          <motion.button
+            type="button"
+            key="minimized"
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            aria-label="展开交互目录"
+            className="group/nav flex cursor-pointer flex-col items-end gap-4 pr-1.5 py-6"
+          >
+            {minimizedMessages.map((msg) => (
+              <motion.div
+                key={msg.id}
+                initial={false}
+                className="h-[3px] w-5 rounded-full bg-black/90 shadow-[0_1.5px_4px_rgba(0,0,0,0.15)] transition-all duration-500 group-hover/nav:w-7 group-hover/nav:bg-black dark:bg-white/70 dark:group-hover/nav:bg-white"
+              />
+            ))}
+          </motion.button>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  )
 }
 
-export function ChatConsole({ conversationId }: ChatConsoleProps) {
+type ChatConsoleProps = {
+  conversationId?: string
+  backLabel?: string
+  backHref?: string
+}
+
+export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsoleProps) {
   const { ready: backendReady, checked: backendChecked, message: backendMessage } = useBackendStatus()
   const [input, setInput] = React.useState("")
   const [messages, setMessages] = React.useState<ChatMessage[]>([
@@ -94,8 +180,86 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
   const [isStreaming, setIsStreaming] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [reasoningWidth, setReasoningWidth] = React.useState(360)
+  const [isInputExpanded, setIsInputExpanded] = React.useState(false)
   const [activeConversationId, setActiveConversationId] = React.useState<string | undefined>(conversationId)
+  const [remoteRunStatus, setRemoteRunStatus] = React.useState<string | null>(null)
   const isResizingRef = React.useRef(false)
+  const streamAbortRef = React.useRef<AbortController | null>(null)
+  const activeRunIdRef = React.useRef<string | null>(null)
+  const userStoppedRef = React.useRef(false)
+  
+  const scrollRef = React.useRef<HTMLDivElement>(null)
+  const suppressAutoScrollRef = React.useRef(false)
+  const suppressAutoScrollTimerRef = React.useRef<number | null>(null)
+  const isUserScrollingRef = React.useRef(false)
+  const [isUserScrolling, setIsUserScrollingState] = React.useState(false)
+  const isRunActive = isStreaming || remoteRunStatus === "running"
+
+  const setIsUserScrolling = React.useCallback((value: boolean) => {
+    isUserScrollingRef.current = value
+    setIsUserScrollingState(value)
+  }, [])
+
+  const scrollToBottom = React.useCallback((force = false) => {
+    if (!scrollRef.current) return
+    if (suppressAutoScrollRef.current && !force) return
+    if (isUserScrollingRef.current && !force) return
+    
+    const element = scrollRef.current
+    const performScroll = () => {
+      element.scrollTo({
+        top: element.scrollHeight,
+        behavior: force ? "smooth" : "auto",
+      })
+    }
+    
+    performScroll()
+    // A small delay handles late layout shifts (markdown tables, code blocks, etc.)
+    if (!force) {
+      setTimeout(performScroll, 60)
+    }
+    
+    if (force) setIsUserScrolling(false)
+  }, [setIsUserScrolling])
+
+  React.useEffect(() => {
+    scrollToBottom()
+  }, [messages, reasoningSteps, scrollToBottom])
+
+  const handleScroll = React.useCallback(() => {
+    if (!scrollRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
+    // Increased detection threshold for more reliable 'at bottom' check
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 80
+    setIsUserScrolling(!isAtBottom)
+  }, [setIsUserScrolling])
+
+  React.useEffect(() => {
+    return () => {
+      if (suppressAutoScrollTimerRef.current !== null) {
+        window.clearTimeout(suppressAutoScrollTimerRef.current)
+      }
+    }
+  }, [])
+
+  const scrollToMessage = React.useCallback((id: string) => {
+    const element = document.getElementById(`msg-${id}`)
+    const container = scrollRef.current
+    if (element && container) {
+      suppressAutoScrollRef.current = true
+      if (suppressAutoScrollTimerRef.current !== null) {
+        window.clearTimeout(suppressAutoScrollTimerRef.current)
+      }
+      setIsUserScrolling(true)
+      const containerRect = container.getBoundingClientRect()
+      const elementRect = element.getBoundingClientRect()
+      const relativeTop = elementRect.top - containerRect.top + container.scrollTop
+      container.scrollTo({ top: relativeTop - 24, behavior: "smooth" })
+      suppressAutoScrollTimerRef.current = window.setTimeout(() => {
+        suppressAutoScrollRef.current = false
+      }, 450)
+    }
+  }, [setIsUserScrolling])
 
   const seededThinkingStep = React.useMemo<ReasoningStep[]>(
     () => [
@@ -115,40 +279,65 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
     setActiveConversationId(conversationId)
   }, [conversationId])
 
+  const loadConversation = React.useCallback(
+    async (conversationIdToLoad: string) => {
+      const conversation = await apiJson<ConversationDetail>(`/chat/conversations/${conversationIdToLoad}`)
+      const hydratedMessages = [...conversation.messages]
+      const lastMessage = hydratedMessages[hydratedMessages.length - 1]
+      if (conversation.status === "running" && lastMessage?.role !== "assistant") {
+        hydratedMessages.push({
+          id: `${conversation.run_id ?? conversation.id}:assistant-pending`,
+          role: "assistant",
+          content: "",
+          created_at: conversation.updated_at,
+        })
+      }
+
+      const hydratedReasoning: ReasoningStep[] = conversation.trace_events.map((event) => ({
+          id: `${event.node_name}:${event.sequence_no}`,
+          node: event.node_name,
+          title: event.node_name,
+          detail: summarizeReasoningDetail(event),
+          meta: summarizeReasoningMeta(event),
+          status:
+            event.status === "failed" || event.status === "error"
+              ? "error"
+              : event.status === "running"
+                ? "active"
+                : "complete",
+        }))
+
+      setMessages(hydratedMessages)
+      setReasoningSteps(
+        conversation.status === "running" && hydratedReasoning.length === 0 ? seededThinkingStep : hydratedReasoning
+      )
+      setRemoteRunStatus(conversation.status ?? null)
+      activeRunIdRef.current = conversation.status === "running" ? conversation.run_id : null
+      if (!conversationId) {
+        setActiveConversation(conversation.id, "chat")
+      }
+    },
+    [conversationId, seededThinkingStep]
+  )
+
   React.useEffect(() => {
     if (!activeConversationId || !backendReady) return
     let cancelled = false
-    apiJson<ConversationDetail>(`/chat/conversations/${activeConversationId}`)
-      .then((conversation) => {
-        if (!cancelled) {
-          setMessages(conversation.messages)
-          setReasoningSteps(
-            conversation.trace_events.map((event) => ({
-              id: `${event.node_name}:${event.sequence_no}`,
-              node: event.node_name,
-              title: event.node_name,
-              detail: summarizeReasoningDetail(event),
-              meta: summarizeReasoningMeta(event),
-              status:
-                event.status === "failed" || event.status === "error"
-                  ? "error"
-                  : event.status === "running"
-                    ? "active"
-                    : "complete",
-            }))
-          )
-          if (!conversationId) {
-            setActiveConversation(conversation.id, "chat")
-          }
-        }
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setError(err.message)
-      })
+    loadConversation(activeConversationId).catch((err: Error) => {
+      if (!cancelled) setError(err.message)
+    })
     return () => {
       cancelled = true
     }
-  }, [activeConversationId, backendReady, conversationId])
+  }, [activeConversationId, backendReady, loadConversation])
+
+  React.useEffect(() => {
+    if (!activeConversationId || !backendReady || isStreaming || remoteRunStatus !== "running") return
+    const timer = window.setInterval(() => {
+      void loadConversation(activeConversationId).catch(() => {})
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [activeConversationId, backendReady, isStreaming, loadConversation, remoteRunStatus])
 
   React.useEffect(() => {
     function handlePointerMove(event: PointerEvent) {
@@ -211,20 +400,47 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
     })
   }, [])
 
+  const handleStop = React.useCallback(async () => {
+    const runId = activeRunIdRef.current
+    if (!isRunActive) return
+
+    userStoppedRef.current = true
+    try {
+      if (runId) {
+        await apiVoid(`/chat/runs/${runId}/cancel`, { method: "POST" })
+      }
+    } catch {
+      // swallow cancel errors; local abort still stops UI streaming
+    } finally {
+      streamAbortRef.current?.abort()
+      streamAbortRef.current = null
+      activeRunIdRef.current = null
+      setIsStreaming(false)
+      setRemoteRunStatus("cancelled")
+    }
+  }, [isRunActive])
+
   const handleSend = React.useCallback(async () => {
     const query = input.trim()
-    if (!query || isStreaming || !backendReady) return
+    if (!query || isRunActive || !backendReady) return
 
-    const assistantId = `assistant-${Date.now()}`
+    const requestSeed = typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const assistantId = `assistant-${requestSeed}`
+    const userId = `user-${requestSeed}`
     setError(null)
     setInput("")
     setReasoningSteps(seededThinkingStep)
     setMessages((prev) => [
       ...prev,
-      { id: `user-${Date.now()}`, role: "user", content: query },
+      { id: userId, role: "user", content: query },
       { id: assistantId, role: "assistant", content: "" },
     ])
     setIsStreaming(true)
+    userStoppedRef.current = false
+    const abortController = new AbortController()
+    streamAbortRef.current = abortController
 
     try {
       let response: Response
@@ -232,6 +448,7 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
         response = await fetch(`${API_BASE_URL}/chat/stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: abortController.signal,
           body: JSON.stringify({
             query,
             workspace_slug: DEFAULT_WORKSPACE,
@@ -265,7 +482,20 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
 
           if (event === "reasoning") {
             mergeReasoning(payload as ReasoningEvent)
+            if (payload.run_id) {
+              activeRunIdRef.current = payload.run_id
+            }
           }
+          if (event === "run") {
+              if (payload.query_id) {
+                setActiveConversationId(payload.query_id)
+                setActiveConversation(payload.query_id, "chat")
+              }
+              if (payload.run_id) {
+                activeRunIdRef.current = payload.run_id
+              }
+              setRemoteRunStatus("running")
+            }
           if (event === "route") {
             mergeReasoning({
               node: "query_router",
@@ -337,6 +567,8 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
                 setActiveConversationId(payload.query_id)
                 setActiveConversation(payload.query_id, "chat")
               }
+              activeRunIdRef.current = payload.run_id ?? activeRunIdRef.current
+              setRemoteRunStatus("succeeded")
               notifyConversationsUpdated()
               mergeReasoning({
                 node: "answer_generator",
@@ -351,6 +583,17 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
               })
             }
           }
+          if (event === "cancelled") {
+            if (payload.query_id) {
+              setActiveConversationId(payload.query_id)
+              setActiveConversation(payload.query_id, "chat")
+            }
+            activeRunIdRef.current = null
+            setRemoteRunStatus("succeeded")
+            notifyConversationsUpdated()
+            setIsStreaming(false)
+            break
+          }
           if (event === "citation" && payload.citations) {
             setMessages((prev) =>
               prev.map((message) =>
@@ -364,6 +607,13 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
         }
       }
     } catch (err) {
+      if (abortController.signal.aborted) {
+        if (!userStoppedRef.current) {
+          setRemoteRunStatus("running")
+        }
+        notifyConversationsUpdated()
+        return
+      }
       const message = err instanceof Error ? err.message : "对话请求失败"
       setError(message)
       setMessages((prev) =>
@@ -372,16 +622,25 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
         )
       )
     } finally {
+      if (streamAbortRef.current === abortController) {
+        streamAbortRef.current = null
+      }
+      activeRunIdRef.current = null
       setIsStreaming(false)
     }
-  }, [activeConversationId, backendReady, input, isStreaming, mergeReasoning, seededThinkingStep])
+  }, [activeConversationId, backendReady, input, isRunActive, mergeReasoning, seededThinkingStep])
 
   return (
     <div className="relative flex h-full w-full overflow-hidden">
       <div className="relative z-10 flex h-full flex-1 flex-col">
         <header className="h-16 shrink-0 border-b border-border/80 bg-background px-6 shadow-sm">
           <div className="flex h-full items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
+              {backHref && (
+                <div className="flex items-center border-r border-border pr-4 h-8">
+                  <PageBack label={backLabel ?? "返回"} href={backHref} className="mb-0" />
+                </div>
+              )}
               <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-sm">
                 <span className="h-2 w-2 rounded-full bg-green-500" />
                 Public Tech Workspace
@@ -403,39 +662,82 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 py-6 md:px-10">
-          <div className="mx-auto max-w-3xl">
-            {!backendReady && backendChecked ? (
-              <div className="flex min-h-[420px] items-center">
-                <div className="w-full rounded-3xl border border-border bg-card px-8 py-10 shadow-[0_16px_40px_rgba(15,23,42,0.06)] dark:shadow-none">
-                  <div className="flex items-start gap-4">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
-                      <DatabaseZap size={20} />
-                    </div>
-                    <div className="space-y-3">
-                      <h2 className="text-xl font-semibold text-foreground">后端服务暂未连接</h2>
-                      <p className="max-w-2xl text-sm leading-7 text-muted-foreground">
-                        {backendMessage ?? "请先启动 API、Redis 和数据库，再刷新页面。"}
-                      </p>
-                      <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground">
-                        当前仍可浏览历史、文档、评估等页面结构；后端恢复后刷新页面，即可继续使用对话、历史和检索功能。
+        <div className="flex-1 relative min-h-0">
+          <div 
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="h-full overflow-y-auto px-4 py-6 md:px-10 scroll-smooth"
+          >
+            <div className="mx-auto max-w-3xl min-h-full pb-8">
+              {!backendReady && backendChecked ? (
+                <div className="flex min-h-[420px] items-center">
+                  <div className="w-full rounded-3xl border border-border bg-card px-8 py-10 shadow-[0_16px_40px_rgba(15,23,42,0.06)] dark:shadow-none">
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
+                        <DatabaseZap size={20} />
+                      </div>
+                      <div className="space-y-3">
+                        <h2 className="text-xl font-semibold text-foreground">后端服务暂未连接</h2>
+                        <p className="max-w-2xl text-sm leading-7 text-muted-foreground">
+                          {backendMessage ?? "请先启动 API、Redis 和数据库，再刷新页面。"}
+                        </p>
+                        <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground">
+                          当前仍可浏览历史、文档、评估等页面结构；后端恢复后刷新页面，即可继续使用对话、历史和检索功能。
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ) : (
-              <MessageList messages={messages} isStreaming={isStreaming} />
-            )}
+              ) : (
+                <MessageList messages={messages} isStreaming={isRunActive} />
+              )}
+            </div>
           </div>
+          <MessageDirectory messages={messages} onNavigate={scrollToMessage} />
         </div>
 
         <div className="shrink-0 p-4">
           <div className="relative mx-auto max-w-3xl">
-            <div className="relative flex items-end gap-2 rounded-2xl border border-border bg-card p-2 shadow-[0_14px_40px_rgba(15,23,42,0.08)] dark:shadow-none">
+            <AnimatePresence>
+              {isUserScrolling && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute -top-12 right-0 z-20"
+                >
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="rounded-full h-8 w-8 shadow-sm border border-border bg-background text-muted-foreground hover:text-foreground"
+                    onClick={() => scrollToBottom(true)}
+                  >
+                    <ArrowDown size={16} />
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <div
+              className={cn(
+                "relative flex gap-2 rounded-2xl border border-border bg-card p-2 shadow-[0_14px_40px_rgba(15,23,42,0.08)] dark:shadow-none",
+                isInputExpanded ? "items-stretch" : "items-end"
+              )}
+            >
               <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 rounded-xl text-muted-foreground hover:bg-muted">
                 <Paperclip size={18} />
               </Button>
+              {isInputExpanded ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="收起输入框"
+                  className="absolute right-2 top-2 z-10 h-10 w-10 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => setIsInputExpanded(false)}
+                >
+                  <Minimize2 size={16} />
+                </Button>
+              ) : null}
               <textarea
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
@@ -447,22 +749,51 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
                 }}
                 disabled={!backendReady}
                 placeholder={backendReady ? "询问 Airflow、K8s、API、故障日志或项目文档..." : "后端未连接，暂时无法发起对话"}
-                className="min-h-[40px] max-h-48 flex-1 resize-none border-none bg-transparent py-2 text-[15px] font-medium leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:ring-0 disabled:cursor-not-allowed disabled:text-slate-900 dark:disabled:text-muted-foreground dark:placeholder:text-muted-foreground"
+                className={cn(
+                  "min-h-[40px] flex-1 resize-none custom-scrollbar border-none bg-transparent py-2 text-[15px] font-medium leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:ring-0 disabled:cursor-not-allowed disabled:text-slate-900 dark:disabled:text-muted-foreground dark:placeholder:text-muted-foreground",
+                  isInputExpanded ? "overflow-y-auto pr-14" : "overflow-y-hidden pr-2"
+                )}
+                style={{ height: `${isInputExpanded ? EXPANDED_TEXTAREA_HEIGHT : COLLAPSED_TEXTAREA_HEIGHT}px` }}
                 rows={1}
               />
-              <Button
-                size="icon"
-                onClick={() => void handleSend()}
-                disabled={!input.trim() || isStreaming || !backendReady}
-                className="h-10 w-10 shrink-0 rounded-xl bg-primary/90 text-primary-foreground shadow-sm transition-transform hover:bg-primary active:scale-95 disabled:opacity-100 disabled:bg-primary/90"
+              <div
+                className={cn(
+                  "shrink-0",
+                  isInputExpanded ? "flex flex-col justify-end gap-2" : "flex items-end gap-2"
+                )}
               >
-                {isStreaming ? <StreamingSquare /> : <Send size={18} className="ml-0.5" />}
-              </Button>
+                {!isInputExpanded ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="展开输入框"
+                    className="h-10 w-10 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => setIsInputExpanded(true)}
+                  >
+                    <Maximize2 size={16} />
+                  </Button>
+                ) : null}
+                <Button
+                  size="icon"
+                  onClick={() => {
+                    if (isRunActive) {
+                      void handleStop()
+                      return
+                    }
+                    void handleSend()
+                  }}
+                  disabled={(!input.trim() && !isRunActive) || !backendReady}
+                  className="h-10 w-10 shrink-0 rounded-xl bg-primary/90 text-primary-foreground shadow-sm transition-transform hover:bg-primary active:scale-95 disabled:opacity-100 disabled:bg-primary/90"
+                >
+                  {isRunActive ? <StreamingSquare /> : <Send size={18} className="ml-0.5" />}
+                </Button>
+              </div>
             </div>
             <div className="mt-2 text-center text-xs text-muted-foreground/80">
               {!backendReady && backendChecked
                 ? "后端恢复后刷新页面，即可继续使用对话、历史和检索功能。"
-                : isStreaming
+                : isRunActive
                   ? "Agent 正在检索、推理并生成回答..."
                   : "回答会附带引用证据，请在执行操作前核实。"}
             </div>

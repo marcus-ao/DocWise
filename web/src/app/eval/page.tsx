@@ -9,6 +9,7 @@ import { AlertTriangle, BarChart2, CheckCircle, Target } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { PageBack } from "@/components/layout/page-back"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Skeleton } from "@/components/ui/skeleton"
 import { apiJson, EvalBadCaseItem, EvalTrendItem } from "@/lib/api"
 
 type EvalTrendsResponse = {
@@ -23,10 +24,12 @@ type EvalBadCaseListResponse = {
 export default function EvalPage() {
   const [trends, setTrends] = React.useState<EvalTrendItem[]>([])
   const [badCases, setBadCases] = React.useState<EvalBadCaseItem[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
+    setIsLoading(true)
     Promise.all([
       apiJson<EvalTrendsResponse>("/eval/trends", { query: { limit: 10 } }),
       apiJson<EvalBadCaseListResponse>("/eval/bad-cases", { query: { limit: 12 } }),
@@ -39,6 +42,9 @@ export default function EvalPage() {
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
       })
     return () => {
       cancelled = true
@@ -57,7 +63,7 @@ export default function EvalPage() {
     <div className="w-full h-full p-6 flex flex-col gap-6 overflow-hidden">
       <div className="shrink-0 flex items-center justify-between">
         <div>
-          <PageBack label="返回首页" href="/" />
+          <PageBack label="返回控制台" href="/" />
           <h1 className="text-2xl font-semibold tracking-tight">评估仪表盘</h1>
           <p className="text-sm text-muted-foreground mt-1">从 eval_results 聚合 RAG 检索、引用与坏例趋势</p>
         </div>
@@ -76,7 +82,13 @@ export default function EvalPage() {
         <Card className="flex-1 p-6 bg-background/50 backdrop-blur-sm border-border/50 flex flex-col">
           <h3 className="font-semibold mb-6">指标趋势对比</h3>
           <div className="flex-1 min-h-0 w-full">
-            {chartData.length === 0 ? (
+            {isLoading ? (
+              <div className="h-full w-full flex items-end gap-2 p-4">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <Skeleton key={i} className="w-full rounded-t-sm" style={{ height: `${Math.random() * 60 + 20}%` }} />
+                ))}
+              </div>
+            ) : chartData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
                 暂无评估批次。运行 eval 后会展示趋势曲线。
               </div>

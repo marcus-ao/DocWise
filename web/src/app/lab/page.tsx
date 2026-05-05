@@ -51,8 +51,10 @@ export default function LabPage() {
 
   return (
     <div className="w-full h-full p-6 flex flex-col gap-6 overflow-hidden">
+      <div className="shrink-0">
+        <PageBack label="返回控制台" href="/" />
+      </div>
       <Card className="shrink-0 p-4 bg-background/50 backdrop-blur-sm border-border/50 flex items-center gap-4">
-        <PageBack label="返回首页" href="/" />
         <div className="relative flex-1 max-w-2xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
           <Input

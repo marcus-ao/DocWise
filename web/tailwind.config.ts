@@ -8,6 +8,28 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: [
+          "var(--font-sans)",
+          "Inter",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "PingFang SC",
+          "HarmonyOS Sans SC",
+          "Microsoft YaHei",
+          "sans-serif"
+        ],
+        mono: [
+          "var(--font-mono)",
+          "JetBrains Mono",
+          "ui-monospace",
+          "SFMono-Regular",
+          "Menlo",
+          "Monaco",
+          "Consolas",
+          "monospace"
+        ],
+      },
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",

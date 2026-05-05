@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 import {
   CheckCircle2,
   ChevronDown,
@@ -110,15 +110,25 @@ export function AgentReasoning({ steps }: AgentReasoningProps) {
                       {expanded ? "收起详情" : "展开详情"}
                     </button>
                   ) : null}
-                  {hasMeta && expanded ? (
-                    <div className="mt-3 rounded-lg border border-border bg-background px-3 py-2">
-                      <ul className="space-y-1.5 text-xs leading-5 text-foreground/85">
-                        {step.meta?.map((item, itemIndex) => (
-                          <li key={`${step.id}-${itemIndex}`}>{item}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
+                  <AnimatePresence initial={false}>
+                    {hasMeta && expanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                        animate={{ height: "auto", opacity: 1, marginTop: 12 }}
+                        exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                        transition={{ duration: 0.2, ease: "easeInOut" }}
+                        className="overflow-hidden"
+                      >
+                        <div className="rounded-lg border border-border bg-background px-3 py-2">
+                          <ul className="space-y-1.5 text-xs leading-5 text-foreground/85">
+                            {step.meta?.map((item, itemIndex) => (
+                              <li key={`${step.id}-${itemIndex}`}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </motion.div>
             )

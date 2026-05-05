@@ -21,10 +21,11 @@ from src.api.citations import citation_from_dict, citations_from_final, citation
 from src.api.deps import DbSession
 from src.models.agent import AgentRun, ToolCall
 from src.models.agent import TraceEvent
+from src.models.base import AgentRunStatus
 from src.models.feedback import Feedback
 from src.models.query import Query, RetrievalResult
 from src.models.workspace import Workspace
-from src.observability import complete_agent_run, create_agent_run
+from src.observability import complete_agent_run, create_agent_run, update_agent_run_progress
 from src.schemas.chat import (
     ChatRequest,
     ChatResponse,
@@ -45,6 +46,7 @@ from src.schemas.shared import TraceEventItem
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 HEARTBEAT_INTERVAL_SECONDS = 30.0
+RUN_CANCEL_EVENTS: dict[str, asyncio.Event] = {}
 
 
 class EventStreamGraph(Protocol):
@@ -61,6 +63,31 @@ def _json_default(value: object) -> str:
 
 def format_sse(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=_json_default)}\n\n"
+
+
+async def _persist_partial_completion(
+    *,
+    run_id: str,
+    final_state: dict,
+    partial_answer: str,
+    start_time: float,
+) -> None:
+    answer = partial_answer or str(final_state.get("answer") or "")
+    await complete_agent_run(
+        run_id=str(final_state.get("trace_id") or run_id),
+        status="refused" if final_state.get("refused") else "succeeded",
+        answer=answer,
+        citations=final_state.get("citations"),
+        route=final_state.get("route"),
+        route_confidence=final_state.get("route_confidence"),
+        workspace_policy=final_state.get("workspace_policy"),
+        workspace_ids=final_state.get("workspace_ids"),
+        confidence_score=final_state.get("confidence_score"),
+        refused=bool(final_state.get("refused", False)),
+        refusal_reason=final_state.get("refusal_reason"),
+        latency_ms=int((time.perf_counter() - start_time) * 1000),
+        error_message=final_state.get("error"),
+    )
 
 
 def _state_from_event(event: dict) -> dict:
@@ -279,7 +306,11 @@ async def map_langgraph_event_to_sse(event: dict) -> str | None:
     return None
 
 
-async def _events_with_heartbeat(graph: EventStreamGraph, state: dict) -> AsyncIterator[tuple[str, object | None]]:
+async def _events_with_heartbeat(
+    graph: EventStreamGraph,
+    state: dict,
+    cancel_event: asyncio.Event | None = None,
+) -> AsyncIterator[tuple[str, object | None]]:
     queue: asyncio.Queue[tuple[str, object | None]] = asyncio.Queue()
 
     async def token_sink(token: str) -> None:
@@ -292,6 +323,9 @@ async def _events_with_heartbeat(graph: EventStreamGraph, state: dict) -> AsyncI
                 version="v2",
                 config={"configurable": {"retry_budget": RetryBudget(max_total_retries=3), "token_sink": token_sink}},
             ):
+                if cancel_event is not None and cancel_event.is_set():
+                    await queue.put(("cancelled", None))
+                    return
                 await queue.put(("graph", event))
         except Exception as exc:  # noqa: BLE001 - forwarded into SSE contract.
             await queue.put(("error", exc))
@@ -304,6 +338,9 @@ async def _events_with_heartbeat(graph: EventStreamGraph, state: dict) -> AsyncI
             try:
                 item = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_INTERVAL_SECONDS)
             except TimeoutError:
+                if cancel_event is not None and cancel_event.is_set():
+                    yield ("cancelled", None)
+                    return
                 yield ("heartbeat", None)
                 continue
             yield item
@@ -371,27 +408,60 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         conversation_id = str(request.conversation_id or uuid4())
         query_id = conversation_id
         run_id = str(uuid4())
+        partial_answer = ""
+        last_progress_persist_len = 0
+        has_persisted_first_progress = False
         state = create_initial_state(original_query=request.query, trace_id=run_id)
         state["query_id"] = query_id
         if request.workspace_slug:
             state["selected_workspace_name"] = request.workspace_slug
         final_state: dict = dict(state)
         out_of_scope = False
+        cancel_event = asyncio.Event()
         try:
             run_id = await create_agent_run(
                 query_id=query_id,
                 original_query=request.query,
                 workspace_slug=request.workspace_slug,
             )
+            RUN_CANCEL_EVENTS[run_id] = cancel_event
             state["trace_id"] = run_id
             final_state["trace_id"] = run_id
+            yield format_sse("run", {"query_id": query_id, "run_id": run_id})
             graph = cast(EventStreamGraph, build_agent_graph())
-            async for item_type, payload in _events_with_heartbeat(graph, dict(state)):
+            async for item_type, payload in _events_with_heartbeat(graph, dict(state), cancel_event=cancel_event):
                 if item_type == "heartbeat":
                     yield format_sse("token", {"content": ""})
                     continue
+                if item_type == "cancelled":
+                    final_state["answer"] = partial_answer
+                    await _persist_partial_completion(
+                        run_id=run_id,
+                        final_state=final_state,
+                        partial_answer=partial_answer,
+                        start_time=start,
+                    )
+                    yield format_sse(
+                        "cancelled",
+                        {
+                            "query_id": query_id,
+                            "run_id": str(final_state.get("trace_id") or run_id),
+                            "answer": partial_answer,
+                            "latency_ms": int((time.perf_counter() - start) * 1000),
+                        },
+                    )
+                    return
                 if item_type == "token":
-                    yield format_sse("token", {"content": str(payload or "")})
+                    token_text = str(payload or "")
+                    partial_answer += token_text
+                    if partial_answer and not has_persisted_first_progress:
+                        await update_agent_run_progress(run_id, answer=partial_answer)
+                        last_progress_persist_len = len(partial_answer)
+                        has_persisted_first_progress = True
+                    elif len(partial_answer) - last_progress_persist_len >= 16:
+                        await update_agent_run_progress(run_id, answer=partial_answer)
+                        last_progress_persist_len = len(partial_answer)
+                    yield format_sse("token", {"content": token_text})
                     continue
                 if item_type == "error":
                     raise cast(Exception, payload)
@@ -412,7 +482,18 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 if mapped:
                     if out_of_scope and not mapped.startswith("event: route\n"):
                         continue
+                    if mapped.startswith("event: answer\n") and partial_answer:
+                        continue
                     yield mapped
+        except asyncio.CancelledError:
+            final_state["answer"] = partial_answer
+            await _persist_partial_completion(
+                run_id=run_id,
+                final_state=final_state,
+                partial_answer=partial_answer,
+                start_time=start,
+            )
+            return
         except Exception as error:
             await complete_agent_run(
                 run_id=run_id,
@@ -425,21 +506,14 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 {"error_type": _error_type(error), "message": str(error), "run_id": run_id, "node_name": None},
             )
             return
+        finally:
+            RUN_CANCEL_EVENTS.pop(run_id, None)
 
-        await complete_agent_run(
-            run_id=str(final_state.get("trace_id") or run_id),
-            status="refused" if final_state.get("refused") else "succeeded",
-            answer=str(final_state.get("answer") or ""),
-            citations=final_state.get("citations"),
-            route=final_state.get("route"),
-            route_confidence=final_state.get("route_confidence"),
-            workspace_policy=final_state.get("workspace_policy"),
-            workspace_ids=final_state.get("workspace_ids"),
-            confidence_score=final_state.get("confidence_score"),
-            refused=bool(final_state.get("refused", False)),
-            refusal_reason=final_state.get("refusal_reason"),
-            latency_ms=int((time.perf_counter() - start) * 1000),
-            error_message=final_state.get("error"),
+        await _persist_partial_completion(
+            run_id=run_id,
+            final_state=final_state,
+            partial_answer=partial_answer,
+            start_time=start,
         )
 
         yield format_sse(
@@ -450,11 +524,22 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 "refused": bool(final_state.get("refused", False)),
                 "refusal_reason": final_state.get("refusal_reason"),
                 "latency_ms": int((time.perf_counter() - start) * 1000),
-                "answer": str(final_state.get("answer") or ""),
+                "answer": partial_answer or str(final_state.get("answer") or ""),
             },
         )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.post("/runs/{run_id}/cancel", response_model=ConversationMutationResponse, status_code=status.HTTP_202_ACCEPTED)
+async def cancel_chat_run(db: DbSession, run_id: UUID) -> ConversationMutationResponse:
+    run = await db.get(AgentRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    cancel_event = RUN_CANCEL_EVENTS.get(str(run_id))
+    if cancel_event is not None:
+        cancel_event.set()
+    return ConversationMutationResponse(query_id=run.query_id, status="accepted")
 
 
 @router.get("/conversations", response_model=ChatConversationListResponse)
@@ -629,6 +714,9 @@ async def get_conversation(db: DbSession, conversation_id: UUID) -> ChatConversa
         workspace_slug=query.workspace_slug,
         created_at=query.created_at,
         updated_at=updated_at,
+        status=str(getattr(getattr(latest_run, "status", None), "value", getattr(latest_run, "status", None)))
+        if latest_run
+        else None,
         messages=messages,
         trace_events=trace_events,
     )

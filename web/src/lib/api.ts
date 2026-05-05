@@ -51,6 +51,7 @@ export type ConversationDetail = {
   workspace_slug: string | null
   created_at: string
   updated_at: string
+  status: string | null
   messages: ChatMessage[]
   trace_events: {
     node_name: string
