@@ -45,20 +45,22 @@ export default function HomePage() {
           ) : null}
         </header>
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {MODULES.map((entry) => (
-            <Link key={entry.href} href={entry.href} className="block">
-              <Card className="h-full border border-border bg-card py-0 shadow-sm transition-colors hover:bg-muted/25 dark:shadow-none">
-                <CardHeader className="space-y-4 px-5 py-5">
+        <section className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {MODULES.map((entry, index) => (
+            <Link key={entry.href} href={entry.href} className="block outline-none group">
+              <Card className="h-full border border-border bg-card/40 backdrop-blur-sm py-0 shadow-[0_8px_30px_rgb(0,0,0,0.02)] transition-all duration-300 hover:scale-[1.015] hover:bg-card/80 hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:shadow-none dark:hover:bg-muted/30">
+                <CardHeader className="space-y-4 px-6 py-6">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-background text-foreground">
-                      <entry.icon size={20} />
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-border bg-background/50 text-foreground shadow-sm transition-transform duration-300 group-hover:-rotate-3 group-hover:scale-105">
+                      <entry.icon size={22} className="opacity-80 transition-opacity duration-300 group-hover:opacity-100" />
                     </div>
-                    <ArrowRight size={16} className="mt-1 text-muted-foreground" />
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-transparent transition-colors duration-300 group-hover:bg-muted">
+                      <ArrowRight size={16} className="text-muted-foreground transition-transform duration-300 group-hover:translate-x-0.5 group-hover:text-foreground" />
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <CardTitle className="text-lg text-foreground">{entry.title}</CardTitle>
-                    <CardDescription className="text-sm leading-6 text-muted-foreground">
+                    <CardTitle className="text-lg font-semibold tracking-tight text-foreground">{entry.title}</CardTitle>
+                    <CardDescription className="text-sm leading-relaxed text-muted-foreground">
                       {entry.description}
                     </CardDescription>
                   </div>

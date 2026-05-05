@@ -42,7 +42,7 @@ export default function RootLayout({
           <BackendStatusProvider>
             <TooltipProvider>
               <Sidebar />
-              <main className="flex-1 flex min-w-0 flex-col bg-muted/20 transition-colors duration-500 dark:bg-background">
+              <main className="flex-1 flex min-w-0 flex-col bg-muted/10 transition-colors duration-500 dark:bg-background relative overflow-hidden">
                 {children}
               </main>
             </TooltipProvider>

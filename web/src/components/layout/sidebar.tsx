@@ -113,15 +113,25 @@ export function Sidebar() {
             <Link
               href={item.href === "/chat" ? chatHref : item.href}
               className={cn(
-                "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
-                isActive ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors outline-none",
+                isActive ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
               )}
             >
+              {isActive && (
+                <motion.div
+                  layoutId="sidebar-active-indicator"
+                  className="absolute inset-0 rounded-lg bg-muted/80 border border-border/50 shadow-sm dark:shadow-none"
+                  transition={{ type: "spring", stiffness: 350, damping: 30 }}
+                />
+              )}
+              {!isActive && (
+                <div className="absolute inset-0 rounded-lg bg-muted/0 transition-colors duration-200 group-hover:bg-muted/50" />
+              )}
               <item.icon
                 size={18}
-                className={cn("shrink-0", isActive ? "text-foreground" : "opacity-70 group-hover:opacity-100")}
+                className={cn("shrink-0 relative z-10 transition-colors duration-200", isActive ? "text-foreground" : "opacity-70 group-hover:opacity-100")}
               />
-              {!isCollapsed && <span className="truncate">{item.name}</span>}
+              {!isCollapsed && <span className="truncate relative z-10">{item.name}</span>}
             </Link>
           )
 

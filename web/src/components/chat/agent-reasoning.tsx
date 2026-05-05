@@ -76,14 +76,21 @@ export function AgentReasoning({ steps }: AgentReasoningProps) {
             return (
               <motion.div
                 key={step.id}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
+                initial={{ opacity: 0, x: 15, scale: 0.98 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                transition={{ type: "spring", stiffness: 400, damping: 30, delay: index * 0.04 }}
                 className="relative flex items-start gap-3"
               >
                 <div className="z-10 mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-card shadow-sm">
                   {isActive ? (
-                    <div className="h-2 w-2 rounded-full bg-primary animate-ping" />
+                    <div className="relative flex h-3 w-3 items-center justify-center">
+                      <motion.span
+                        className="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60"
+                        animate={{ scale: [1, 1.8, 1], opacity: [0.6, 0, 0.6] }}
+                        transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                      />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+                    </div>
                   ) : step.status === "error" ? (
                     <CircleAlert size={14} className="text-red-500" />
                   ) : (

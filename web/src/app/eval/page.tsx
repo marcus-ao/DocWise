@@ -72,10 +72,10 @@ export default function EvalPage() {
       {error && <div className="text-sm text-red-500">评估数据加载失败：{error}</div>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 shrink-0">
-        <MetricCard title="Hit Rate @ 5" value={`${toPercent(latest?.hit_rate_at_5)}%`} icon={Target} color="text-foreground" />
-        <MetricCard title="MRR" value={(latest?.mrr ?? 0).toFixed(2)} icon={BarChart2} color="text-purple-500" />
-        <MetricCard title="Citation Accuracy" value={`${toPercent(latest?.citation_accuracy)}%`} icon={CheckCircle} color="text-green-500" />
-        <MetricCard title="Bad Cases" value={String(latest?.bad_case_count ?? badCases.length)} icon={AlertTriangle} color="text-orange-500" />
+        <MetricCard title="Hit Rate @ 5" value={`${toPercent(latest?.hit_rate_at_5)}%`} icon={Target} color="neutral" />
+        <MetricCard title="MRR" value={(latest?.mrr ?? 0).toFixed(2)} icon={BarChart2} color="purple" />
+        <MetricCard title="Citation Accuracy" value={`${toPercent(latest?.citation_accuracy)}%`} icon={CheckCircle} color="green" />
+        <MetricCard title="Bad Cases" value={String(latest?.bad_case_count ?? badCases.length)} icon={AlertTriangle} color="orange" />
       </div>
 
       <div className="flex gap-6 flex-1 min-h-0 xl:flex-row flex-col">
@@ -155,25 +155,33 @@ function MetricCard({
   title: string
   value: string
   icon: LucideIcon
-  color: string
+  color: "neutral" | "purple" | "green" | "orange"
 }) {
+  const themes = {
+    neutral: { text: "text-foreground", bg: "bg-foreground" },
+    purple: { text: "text-purple-500", bg: "bg-purple-500" },
+    green: { text: "text-green-500", bg: "bg-green-500" },
+    orange: { text: "text-orange-500", bg: "bg-orange-500" },
+  }
+  const theme = themes[color]
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="p-6 rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm relative overflow-hidden group"
     >
-      <div className={`absolute -right-6 -top-6 w-24 h-24 rounded-full blur-2xl opacity-10 group-hover:opacity-20 transition-opacity ${color.replace("text-", "bg-")}`} />
-      <div className="flex justify-between items-start">
+      <div className={`absolute -right-8 -top-8 w-32 h-32 rounded-full blur-3xl opacity-10 transition-all duration-500 group-hover:scale-125 group-hover:opacity-20 ${theme.bg}`} />
+      <div className="flex justify-between items-start relative z-10">
         <div>
           <div className="text-sm text-muted-foreground font-medium mb-1">{title}</div>
           <div className="text-3xl font-bold tracking-tight">{value}</div>
         </div>
-        <div className={`p-2 rounded-lg bg-muted ${color}`}>
+        <div className={`p-2 rounded-lg bg-muted shadow-inner ${theme.text}`}>
           <Icon size={20} />
         </div>
       </div>
-      <div className="mt-4 text-xs font-medium text-muted-foreground bg-muted/50 inline-flex px-2 py-0.5 rounded">
+      <div className="mt-4 text-[10px] uppercase tracking-wider font-bold text-muted-foreground/60 bg-muted/30 inline-flex px-2 py-0.5 rounded relative z-10">
         最新已完成批次
       </div>
     </motion.div>

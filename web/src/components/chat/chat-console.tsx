@@ -29,9 +29,17 @@ function StreamingSquare() {
   return (
     <motion.span
       style={{ backgroundColor: "var(--docwise-streaming-square)" }}
-      className="block h-3.5 w-3.5 rounded-[0.32rem]"
-      animate={{ scale: [0.82, 1, 0.82], opacity: [0.84, 1, 0.84] }}
-      transition={{ duration: 1.25, repeat: Infinity, ease: "easeInOut" }}
+      className="block h-3 w-3 rounded-sm shadow-[0_0_10px_rgba(255,255,255,0.4)] dark:shadow-none"
+      animate={{ 
+        scale: [0.85, 1.05, 0.85], 
+        opacity: [0.8, 1, 0.8],
+        borderRadius: ["25%", "35%", "25%"] 
+      }}
+      transition={{ 
+        duration: 1.5, 
+        repeat: Infinity, 
+        ease: "easeInOut" 
+      }}
     />
   )
 }
@@ -709,7 +717,7 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
                   <Button
                     variant="outline"
                     size="icon"
-                    className="rounded-full h-8 w-8 shadow-sm border border-border bg-background text-muted-foreground hover:text-foreground"
+                    className="rounded-full h-8 w-8 shadow-sm border border-border/60 bg-background/80 backdrop-blur-sm text-muted-foreground hover:text-foreground"
                     onClick={() => scrollToBottom(true)}
                   >
                     <ArrowDown size={16} />
@@ -719,7 +727,7 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
             </AnimatePresence>
             <div
               className={cn(
-                "relative flex gap-2 rounded-2xl border border-border bg-card p-2 shadow-[0_14px_40px_rgba(15,23,42,0.08)] dark:shadow-none",
+                "relative flex gap-2 rounded-2xl border border-border/70 bg-card/85 backdrop-blur-md p-2 shadow-[0_16px_40px_rgba(15,23,42,0.06)] dark:shadow-none transition-all duration-300 focus-within:shadow-[0_16px_40px_rgba(15,23,42,0.1)] focus-within:border-border",
                 isInputExpanded ? "items-stretch" : "items-end"
               )}
             >

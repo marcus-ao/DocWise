@@ -5,19 +5,19 @@ import { useRouter } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { clearActiveConversation } from "@/lib/active-conversation"
 import { cn } from "@/lib/utils"
 
 export function PageBack({ label, href, className }: { label: string; href?: string; className?: string }) {
   const router = useRouter()
+  const targetHref = href ?? "/"
 
   const handleBack = React.useCallback(() => {
-    if (typeof window !== "undefined" && window.history.length > 1) {
-      router.back()
-      return
+    if (targetHref === "/") {
+      clearActiveConversation()
     }
-
-    router.push(href ?? "/chat")
-  }, [href, router])
+    router.replace(targetHref)
+  }, [router, targetHref])
 
   return (
     <Button

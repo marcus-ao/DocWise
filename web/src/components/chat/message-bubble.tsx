@@ -77,15 +77,26 @@ function CodeBlock({ language, value }: { language?: string; value: string }) {
 
 function ThinkingDots() {
   return (
-    <div className="inline-flex min-w-[82px] items-center justify-center gap-1.5 rounded-full border border-border bg-card px-3.5 py-2 shadow-[0_10px_24px_rgba(15,23,42,0.08)] dark:shadow-none">
-      {[0, 1, 2].map((index) => (
-        <motion.span
-          key={index}
-          className="h-1.5 w-1.5 rounded-full bg-foreground"
-          animate={{ opacity: [0.22, 1, 0.22], y: [0, -1.25, 0], scale: [0.96, 1.04, 0.96] }}
-          transition={{ duration: 1, repeat: Infinity, delay: index * 0.16, ease: "easeInOut" }}
-        />
-      ))}
+    <div className="inline-flex items-center gap-2 rounded-2xl border border-border/40 bg-card/40 px-4 py-2.5 backdrop-blur-sm shadow-sm">
+      <div className="flex gap-1.5">
+        {[0, 1, 2].map((index) => (
+          <motion.span
+            key={index}
+            className="h-1.5 w-1.5 rounded-full bg-primary/80"
+            animate={{ 
+              scale: [1, 1.25, 1],
+              opacity: [0.3, 1, 0.3] 
+            }}
+            transition={{ 
+              duration: 1.4, 
+              repeat: Infinity, 
+              delay: index * 0.2,
+              ease: "easeInOut" 
+            }}
+          />
+        ))}
+      </div>
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 ml-1">Thinking</span>
     </div>
   )
 }
@@ -109,19 +120,17 @@ export function MessageBubble({ message, isStreamingPending = false }: MessageBu
   }
 
   return (
-    <div className={cn("flex gap-4", isUser ? "flex-row-reverse" : "flex-row")}>
+    <div className={cn("flex gap-4 group/bubble", isUser ? "flex-row-reverse" : "flex-row")}>
       <div
         className={cn(
-          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full shadow-sm",
-          isUser ? "bg-muted text-muted-foreground" : "bg-muted text-foreground"
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full shadow-sm transition-transform duration-300 group-hover/bubble:scale-110",
+          isUser ? "bg-muted text-muted-foreground" : "bg-card border border-border text-foreground"
         )}
       >
         {isUser ? (
           <User size={16} />
-        ) : isPendingAssistant ? (
-          <Sparkles size={16} />
         ) : (
-          <Sparkles size={16} />
+          <Sparkles size={16} className="text-primary/80" />
         )}
       </div>
 
@@ -131,16 +140,16 @@ export function MessageBubble({ message, isStreamingPending = false }: MessageBu
         ) : (
           <div
             className={cn(
-              "relative overflow-hidden rounded-2xl border px-4 py-3 text-[15px] leading-7 shadow-sm",
+              "relative overflow-hidden rounded-2xl border px-4 py-3 text-[15px] leading-7 transition-all duration-300",
               isUser
-                ? "rounded-tr-sm border-border bg-muted/88 text-foreground shadow-[0_8px_20px_rgba(15,23,42,0.04)] dark:shadow-none"
-                : "rounded-tl-sm border-border bg-card text-card-foreground shadow-[0_10px_28px_rgba(15,23,42,0.06)] dark:shadow-none"
+                ? "rounded-tr-sm border-primary/10 bg-primary/[0.03] text-foreground shadow-[0_8px_20px_rgba(0,0,0,0.01)] dark:bg-primary/10 dark:border-primary/20"
+                : "rounded-tl-sm border-border bg-card text-card-foreground shadow-[0_10px_28px_rgba(15,23,42,0.04)] dark:shadow-none"
             )}
           >
             {isUser ? (
-              <div className="whitespace-pre-wrap text-foreground">{message.content}</div>
+              <div className="whitespace-pre-wrap text-foreground font-medium">{message.content}</div>
             ) : (
-              <div className="prose prose-sm prose-neutral max-w-none break-words text-card-foreground dark:prose-invert prose-p:my-3 prose-p:leading-7 prose-p:text-foreground prose-headings:mb-4 prose-headings:text-foreground prose-strong:text-foreground prose-em:text-foreground prose-code:text-foreground prose-code:before:content-none prose-code:after:content-none prose-li:text-foreground prose-li:marker:text-foreground prose-a:font-medium prose-a:text-foreground prose-blockquote:border-border prose-blockquote:text-foreground prose-ol:text-foreground prose-ul:text-foreground prose-hr:border-border prose-table:text-foreground prose-th:border-border prose-th:text-foreground prose-td:border-border prose-td:text-foreground prose-pre:m-0 prose-pre:border-0 prose-pre:bg-transparent prose-pre:p-0">
+              <div className="prose prose-sm prose-neutral max-w-none break-words text-card-foreground dark:prose-invert prose-p:my-3 prose-p:leading-7 prose-p:text-foreground/90 prose-headings:mb-4 prose-headings:text-foreground prose-strong:text-foreground prose-em:text-foreground prose-code:text-foreground prose-code:before:content-none prose-code:after:content-none prose-li:text-foreground prose-li:marker:text-foreground prose-a:font-medium prose-a:text-foreground prose-blockquote:border-border prose-blockquote:text-foreground prose-ol:text-foreground prose-ul:text-foreground prose-hr:border-border prose-table:text-foreground prose-th:border-border prose-th:text-foreground prose-td:border-border prose-td:text-foreground prose-pre:m-0 prose-pre:border-0 prose-pre:bg-transparent prose-pre:p-0">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
@@ -156,7 +165,7 @@ export function MessageBubble({ message, isStreamingPending = false }: MessageBu
                         return (
                           <code
                             {...props}
-                            className="rounded-md border border-border/60 bg-muted px-1.5 py-0.5 font-mono text-[0.92em] font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.28)] dark:border-border dark:bg-muted/90 dark:shadow-none"
+                            className="rounded-md border border-border/60 bg-muted/60 px-1.5 py-0.5 font-mono text-[0.88em] font-semibold text-foreground/90"
                           >
                             {codeText}
                           </code>
@@ -166,27 +175,27 @@ export function MessageBubble({ message, isStreamingPending = false }: MessageBu
                       return <CodeBlock language={match?.[1]} value={codeText} />
                     },
                     p({ children }) {
-                      return <p className="text-foreground">{children}</p>
+                      return <p className="text-foreground/90">{children}</p>
                     },
                     li({ children }) {
-                      return <li className="text-foreground">{children}</li>
+                      return <li className="text-foreground/90">{children}</li>
                     },
                     table({ children }) {
                       return (
-                        <div className="my-5 overflow-x-auto rounded-2xl border border-border/70 bg-background/70">
+                        <div className="my-5 overflow-x-auto rounded-xl border border-border/60 bg-muted/20 backdrop-blur-sm">
                           <table className="m-0 w-full text-sm">{children}</table>
                         </div>
                       )
                     },
                     th({ children }) {
                       return (
-                        <th className="border-b border-border bg-muted/35 px-3 py-2 text-left font-semibold text-foreground">
+                        <th className="border-b border-border/60 bg-muted/40 px-4 py-2.5 text-left font-bold text-foreground">
                           {children}
                         </th>
                       )
                     },
                     td({ children }) {
-                      return <td className="border-b border-border/70 px-3 py-2 align-top text-foreground">{children}</td>
+                      return <td className="border-b border-border/40 px-4 py-2.5 align-top text-foreground/80">{children}</td>
                     },
                   }}
                 >
@@ -197,31 +206,45 @@ export function MessageBubble({ message, isStreamingPending = false }: MessageBu
           </div>
         )}
 
-        {!isUser && !isAssistantStreaming ? (
-          <div className="relative flex items-center gap-2 pl-2 text-muted-foreground">
+        {isUser ? (
+          <div className="relative flex items-center gap-1.5 self-start pl-1 text-muted-foreground/60 opacity-0 transition-opacity duration-300 group-hover/bubble:opacity-100">
             <button
               type="button"
               onClick={() => void copyMessage()}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md transition-all hover:bg-muted hover:text-foreground active:scale-90"
+              aria-label="复制消息"
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
+          </div>
+        ) : null}
+
+        {!isUser && !isAssistantStreaming ? (
+          <div className="relative flex items-center gap-1.5 pl-1 text-muted-foreground/60 opacity-0 transition-opacity duration-300 group-hover/bubble:opacity-100">
+            <button
+              type="button"
+              onClick={() => void copyMessage()}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md transition-all hover:bg-muted hover:text-foreground active:scale-90"
               aria-label="复制回复"
             >
-              {copied ? <Check size={16} /> : <Copy size={16} />}
+              {copied ? <Check size={14} /> : <Copy size={14} />}
             </button>
+            <div className="w-px h-3 bg-border/60 mx-0.5" />
             <button
               type="button"
               onClick={() => sendPlaceholderFeedback("up")}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md transition-all hover:bg-muted hover:text-foreground active:scale-90"
               aria-label="好评"
             >
-              {feedbackMark === "up" ? <Check size={16} /> : <ThumbsUp size={16} />}
+              {feedbackMark === "up" ? <Check size={14} /> : <ThumbsUp size={14} />}
             </button>
             <button
               type="button"
               onClick={() => sendPlaceholderFeedback("down")}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md transition-all hover:bg-muted hover:text-foreground active:scale-90"
               aria-label="差评"
             >
-              {feedbackMark === "down" ? <Check size={16} /> : <ThumbsDown size={16} />}
+              {feedbackMark === "down" ? <Check size={14} /> : <ThumbsDown size={14} />}
             </button>
           </div>
         ) : null}

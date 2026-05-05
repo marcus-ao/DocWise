@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { AnimatePresence, motion } from "framer-motion"
 import Link from "next/link"
 import {
   Archive,
@@ -22,6 +23,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
@@ -184,7 +186,7 @@ export function ConversationList({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar pr-2">
         {!backendReady && backendChecked ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             后端恢复后，这里会显示完整的会话列表。
@@ -192,15 +194,35 @@ export function ConversationList({
         ) : filtered.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{emptyText}</div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm dark:shadow-none">
-            <div className="divide-y divide-border">
+          <motion.div
+            variants={{
+              hidden: { opacity: 0 },
+              show: {
+                opacity: 1,
+                transition: { staggerChildren: 0.04 }
+              }
+            }}
+            initial="hidden"
+            animate="show"
+            className="flex flex-col gap-3 pb-8"
+          >
+            <AnimatePresence mode="popLayout">
               {filtered.map((chat) => (
-                <div
+                <motion.div
                   key={chat.id}
-                  className="group relative flex items-center gap-4 px-5 py-4 transition-colors hover:bg-muted/30"
+                  layout
+                  variants={{
+                    hidden: { opacity: 0, y: 12, scale: 0.99 },
+                    show: { opacity: 1, y: 0, scale: 1, transition: { type: "spring", stiffness: 400, damping: 30 } },
+                    exit: { opacity: 0, scale: 0.96, transition: { duration: 0.2 } }
+                  }}
+                  className="group relative flex items-center gap-4 rounded-2xl border border-border/50 bg-card/40 px-5 py-4 backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5 hover:bg-card/80 hover:border-border hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:hover:bg-muted/30 dark:hover:shadow-none"
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-muted-foreground">
-                    <MessageSquare size={16} />
+                  {/* Visual Accent */}
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-r-full bg-primary/0 transition-all duration-300 group-hover:bg-primary/40 group-hover:h-10" />
+
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/10 bg-primary/5 text-primary/70 transition-colors duration-300 group-hover:bg-primary/10 group-hover:text-primary">
+                    <MessageSquare size={18} />
                   </div>
 
                   <div className="min-w-0 flex-1">
@@ -231,65 +253,69 @@ export function ConversationList({
                       <Link
                         href={`/chat/${chat.id}?from=${source}`}
                         onClick={() => setActiveConversation(chat.id, source)}
-                        className="block truncate text-sm font-medium text-foreground transition-colors hover:text-foreground"
+                        className="block truncate text-[15px] font-semibold text-foreground/90 transition-colors hover:text-primary"
                       >
                         {chat.title}
                       </Link>
                     )}
 
-                    <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                      <Badge variant="outline" className="rounded-full bg-muted/60 px-2.5 text-[10px] font-medium text-foreground/85">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-4 text-[11px] font-medium text-muted-foreground/70">
+                      <div className="flex items-center gap-1.5 rounded-full bg-muted/50 px-2.5 py-0.5 text-foreground/80 border border-border/40">
+                        <span className="w-1 h-1 rounded-full bg-primary/60" />
                         {chat.workspace_slug ?? "public_tech"}
-                      </Badge>
-                      <span className="flex items-center gap-1">
-                        <MessageSquare size={12} /> {chat.message_count}
+                      </div>
+                      <span className="flex items-center gap-1.5">
+                        <MessageSquare size={13} className="opacity-70" /> {chat.message_count} 消息
                       </span>
-                      <span className="flex items-center gap-1">
-                        <Clock size={12} /> {formatShortDate(chat.updated_at)}
+                      <span className="flex items-center gap-1.5">
+                        <Clock size={13} className="opacity-70" /> {formatShortDate(chat.updated_at)}
                       </span>
                       {archived ? (
-                        <Badge variant="outline" className="rounded-full bg-muted/75 px-2.5 text-[10px] font-medium text-foreground/85">
+                        <Badge variant="secondary" className="rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border-none px-2.5 h-5 text-[10px]">
                           已存档
                         </Badge>
                       ) : null}
                     </div>
                   </div>
 
-                  <DropdownMenu>
-                    <DropdownMenuTrigger>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 rounded-md text-muted-foreground opacity-70 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-                      >
-                        <MoreHorizontal size={16} />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-44 border border-border bg-popover shadow-xl">
-                      <DropdownMenuItem
-                        className="cursor-pointer"
-                        onClick={() => {
-                          setRenamingId(chat.id)
-                          setTitleDraft(chat.title)
-                        }}
-                      >
-                        <PencilLine size={14} />
-                        重命名
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="cursor-pointer" onClick={() => void toggleArchive(chat.id, !archived)}>
-                        {archived ? <RotateCcw size={14} /> : <Archive size={14} />}
-                        {archived ? "恢复到历史" : "存档"}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="cursor-pointer" variant="destructive" onClick={() => void deleteConversation(chat)}>
-                        <Trash2 size={14} />
-                        删除
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          <MoreHorizontal size={18} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48 border border-border/60 bg-popover/95 backdrop-blur-xl shadow-2xl rounded-xl p-1.5">
+                        <DropdownMenuItem
+                          className="cursor-pointer rounded-lg gap-2 py-2"
+                          onClick={() => {
+                            setRenamingId(chat.id)
+                            setTitleDraft(chat.title)
+                          }}
+                        >
+                          <PencilLine size={15} className="text-muted-foreground" />
+                          <span>重命名</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="cursor-pointer rounded-lg gap-2 py-2" onClick={() => void toggleArchive(chat.id, !archived)}>
+                          {archived ? <RotateCcw size={15} className="text-muted-foreground" /> : <Archive size={15} className="text-muted-foreground" />}
+                          <span>{archived ? "恢复到历史" : "存档会话"}</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator className="bg-border/40" />
+                        <DropdownMenuItem className="cursor-pointer rounded-lg gap-2 py-2 text-red-500 focus:text-red-500 focus:bg-red-500/10" onClick={() => void deleteConversation(chat)}>
+                          <Trash2 size={15} />
+                          <span>删除会话</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </motion.div>
               ))}
-            </div>
-          </div>
+            </AnimatePresence>
+          </motion.div>
         )}
       </div>
     </div>
