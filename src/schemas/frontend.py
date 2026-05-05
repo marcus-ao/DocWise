@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from src.schemas.shared import CitationItem
+from src.schemas.shared import TraceEventItem
 
 
 class ChatConversationListItem(BaseModel):
@@ -47,6 +48,7 @@ class ChatConversationDetail(BaseModel):
     created_at: datetime
     updated_at: datetime
     messages: list[ChatConversationMessage]
+    trace_events: list[TraceEventItem] = Field(default_factory=list)
 
 
 class TraceListItem(BaseModel):

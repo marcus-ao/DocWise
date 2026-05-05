@@ -85,6 +85,7 @@ async def test_create_agent_run_flushes_query_before_agent_run(monkeypatch: pyte
     assert UUID(run_id)
     assert [type(item) for item in session.added] == [Query, AgentRun]
     assert session.added[1].query_id == query_id
+    assert session.added[0].is_archived is False
     assert session.flush_count == 1
     assert session.commit_count == 1
 

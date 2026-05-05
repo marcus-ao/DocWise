@@ -173,6 +173,7 @@ async def create_agent_run(
                     id=qid,
                     original_query=original_query,
                     workspace_slug=workspace_slug,
+                    is_archived=False,
                 ))
                 await session.flush()
 

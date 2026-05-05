@@ -51,3 +51,6 @@ logs/
 docs/agent-prompts/
 docs/unfinished/
 docs/contracts/
+
+# Cache
+web/.npm-cache/

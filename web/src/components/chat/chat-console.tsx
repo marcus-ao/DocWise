@@ -15,9 +15,64 @@ import {
   ConversationDetail,
   ReasoningEvent,
 } from "@/lib/api"
+import { setActiveConversation } from "@/lib/active-conversation"
 import { notifyConversationsUpdated } from "@/lib/conversation-events"
 
 const DEFAULT_WORKSPACE = "public_tech"
+
+function StreamingSquare() {
+  return (
+    <motion.span
+      style={{ backgroundColor: "var(--docwise-streaming-square)" }}
+      className="block h-3.5 w-3.5 rounded-[0.32rem]"
+      animate={{ scale: [0.82, 1, 0.82], opacity: [0.84, 1, 0.84] }}
+      transition={{ duration: 1.25, repeat: Infinity, ease: "easeInOut" }}
+    />
+  )
+}
+
+function summarizeReasoningMeta(detail: {
+  input_summary: Record<string, unknown> | null
+  output_summary: Record<string, unknown> | null
+  latency_ms: number | null
+  error_message: string | null
+}) {
+  const meta: string[] = []
+  const merged = [detail.input_summary, detail.output_summary]
+    .filter((item): item is Record<string, unknown> => Boolean(item))
+    .flatMap((item) => Object.entries(item))
+    .slice(0, 6)
+
+  for (const [key, value] of merged) {
+    if (value === null || value === undefined || value === "") continue
+    meta.push(`${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
+  }
+  if (detail.latency_ms !== null && detail.latency_ms !== undefined) {
+    meta.push(`耗时: ${detail.latency_ms}ms`)
+  }
+  if (detail.error_message) {
+    meta.push(`错误: ${detail.error_message}`)
+  }
+  return meta
+}
+
+function summarizeReasoningDetail(detail: {
+  input_summary: Record<string, unknown> | null
+  output_summary: Record<string, unknown> | null
+  error_message: string | null
+  status: string
+}) {
+  if (detail.error_message) return detail.error_message
+  const merged = [detail.output_summary, detail.input_summary]
+    .filter((item): item is Record<string, unknown> => Boolean(item))
+    .flatMap((item) => Object.entries(item))
+  const firstUseful = merged.find(([, value]) => value !== null && value !== undefined && value !== "")
+  if (firstUseful) {
+    const [key, value] = firstUseful
+    return `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`
+  }
+  return detail.status === "running" ? "节点执行中" : "节点已完成"
+}
 
 type ChatConsoleProps = {
   conversationId?: string
@@ -39,16 +94,52 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
   const [isStreaming, setIsStreaming] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [reasoningWidth, setReasoningWidth] = React.useState(360)
+  const [activeConversationId, setActiveConversationId] = React.useState<string | undefined>(conversationId)
   const isResizingRef = React.useRef(false)
 
+  const seededThinkingStep = React.useMemo<ReasoningStep[]>(
+    () => [
+      {
+        id: "pending-thinking",
+        node: "pending_thinking",
+        title: "Agent 思考中",
+        detail: "正在检索资料、组织线索并准备生成回答",
+        meta: ["等待首批检索与推理节点返回..."],
+        status: "active",
+      },
+    ],
+    []
+  )
+
   React.useEffect(() => {
-    if (!conversationId || !backendReady) return
+    setActiveConversationId(conversationId)
+  }, [conversationId])
+
+  React.useEffect(() => {
+    if (!activeConversationId || !backendReady) return
     let cancelled = false
-    apiJson<ConversationDetail>(`/chat/conversations/${conversationId}`)
+    apiJson<ConversationDetail>(`/chat/conversations/${activeConversationId}`)
       .then((conversation) => {
         if (!cancelled) {
           setMessages(conversation.messages)
-          setReasoningSteps([])
+          setReasoningSteps(
+            conversation.trace_events.map((event) => ({
+              id: `${event.node_name}:${event.sequence_no}`,
+              node: event.node_name,
+              title: event.node_name,
+              detail: summarizeReasoningDetail(event),
+              meta: summarizeReasoningMeta(event),
+              status:
+                event.status === "failed" || event.status === "error"
+                  ? "error"
+                  : event.status === "running"
+                    ? "active"
+                    : "complete",
+            }))
+          )
+          if (!conversationId) {
+            setActiveConversation(conversation.id, "chat")
+          }
         }
       })
       .catch((err: Error) => {
@@ -57,7 +148,7 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
     return () => {
       cancelled = true
     }
-  }, [backendReady, conversationId])
+  }, [activeConversationId, backendReady, conversationId])
 
   React.useEffect(() => {
     function handlePointerMove(event: PointerEvent) {
@@ -127,7 +218,7 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
     const assistantId = `assistant-${Date.now()}`
     setError(null)
     setInput("")
-    setReasoningSteps([])
+    setReasoningSteps(seededThinkingStep)
     setMessages((prev) => [
       ...prev,
       { id: `user-${Date.now()}`, role: "user", content: query },
@@ -141,7 +232,11 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
         response = await fetch(`${API_BASE_URL}/chat/stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, workspace_slug: DEFAULT_WORKSPACE }),
+          body: JSON.stringify({
+            query,
+            workspace_slug: DEFAULT_WORKSPACE,
+            conversation_id: activeConversationId ?? null,
+          }),
         })
       } catch (networkError) {
         const detail = networkError instanceof Error ? networkError.message : "Network request failed"
@@ -238,6 +333,10 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
               )
             }
             if (event === "done") {
+              if (payload.query_id) {
+                setActiveConversationId(payload.query_id)
+                setActiveConversation(payload.query_id, "chat")
+              }
               notifyConversationsUpdated()
               mergeReasoning({
                 node: "answer_generator",
@@ -275,7 +374,7 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
     } finally {
       setIsStreaming(false)
     }
-  }, [backendReady, input, isStreaming, mergeReasoning])
+  }, [activeConversationId, backendReady, input, isStreaming, mergeReasoning, seededThinkingStep])
 
   return (
     <div className="relative flex h-full w-full overflow-hidden">
@@ -326,7 +425,7 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
                 </div>
               </div>
             ) : (
-              <MessageList messages={messages} />
+              <MessageList messages={messages} isStreaming={isStreaming} />
             )}
           </div>
         </div>
@@ -355,9 +454,9 @@ export function ChatConsole({ conversationId }: ChatConsoleProps) {
                 size="icon"
                 onClick={() => void handleSend()}
                 disabled={!input.trim() || isStreaming || !backendReady}
-                className="h-10 w-10 shrink-0 rounded-xl bg-primary/90 text-primary-foreground shadow-sm transition-transform hover:bg-primary active:scale-95 disabled:opacity-50"
+                className="h-10 w-10 shrink-0 rounded-xl bg-primary/90 text-primary-foreground shadow-sm transition-transform hover:bg-primary active:scale-95 disabled:opacity-100 disabled:bg-primary/90"
               >
-                <Send size={18} className="ml-0.5" />
+                {isStreaming ? <StreamingSquare /> : <Send size={18} className="ml-0.5" />}
               </Button>
             </div>
             <div className="mt-2 text-center text-xs text-muted-foreground/80">

@@ -8,6 +8,7 @@ import {
   Activity,
   Archive,
   BarChart2,
+  Bot,
   FileText,
   FlaskConical,
   History,
@@ -20,6 +21,7 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { clearActiveConversation, getActiveConversationId, getActiveConversationSource, setActiveConversation } from "@/lib/active-conversation"
 import { useRecentConversations } from "@/lib/use-recent-conversations"
 import { ConversationListItem } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -39,6 +41,17 @@ export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = React.useState(false)
   const pathname = usePathname()
   const recent = useRecentConversations(4)
+  const [chatHref, setChatHref] = React.useState("/chat")
+
+  React.useEffect(() => {
+    const activeId = getActiveConversationId()
+    const source = getActiveConversationSource()
+    if (activeId) {
+      setChatHref(source === "archive" ? `/chat/${activeId}?from=archive` : `/chat/${activeId}?from=history`)
+    } else {
+      setChatHref("/chat")
+    }
+  }, [pathname])
 
   return (
     <motion.aside
@@ -50,11 +63,18 @@ export function Sidebar() {
       <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-4">
         {!isCollapsed && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3 text-lg font-semibold tracking-tight">
-            <Link href="/" className="flex items-center gap-3 rounded-md px-1 py-0.5 transition-colors hover:text-foreground">
-              <div className="flex h-6 w-6 items-center justify-center rounded bg-primary text-sm font-bold text-primary-foreground">
-                D
+            <Link href="/" className="group flex items-center gap-3 rounded-md px-1 py-0.5 transition-colors hover:text-foreground">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-border bg-card text-foreground shadow-sm transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-md">
+                <Bot size={16} />
               </div>
-              DocWise
+              <div className="flex flex-col leading-none">
+                <span className="bg-gradient-to-r from-foreground via-foreground/90 to-foreground/65 bg-clip-text font-semibold tracking-[0.01em] text-transparent transition-all duration-200 group-hover:tracking-[0.03em]">
+                  DocWise
+                </span>
+                <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground/75">
+                  Knowledge Agent
+                </span>
+              </div>
             </Link>
           </motion.div>
         )}
@@ -70,8 +90,15 @@ export function Sidebar() {
 
       {!isCollapsed && (
         <div className="px-4 py-4">
-          <Link href="/chat" className="block">
-            <Button className="w-full justify-start gap-2 rounded-full border border-border bg-card text-foreground shadow-none hover:bg-muted">
+          <Link
+            href="/chat"
+            className="block"
+            onClick={() => {
+              clearActiveConversation()
+              setChatHref("/chat")
+            }}
+          >
+            <Button className="w-full justify-start gap-2 rounded-full border border-border bg-card text-foreground shadow-none transition-all duration-150 hover:scale-[1.015] hover:bg-muted active:scale-[0.995]">
               <Plus size={16} />
               新建对话
             </Button>
@@ -84,7 +111,7 @@ export function Sidebar() {
           const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
           const linkContent = (
             <Link
-              href={item.href}
+              href={item.href === "/chat" ? chatHref : item.href}
               className={cn(
                 "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
                 isActive ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -168,6 +195,7 @@ function SidebarSection({
             <Link
               key={item.id}
               href={`/chat/${item.id}?from=history`}
+              onClick={() => setActiveConversation(item.id, "history")}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                 isConversationActive ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"

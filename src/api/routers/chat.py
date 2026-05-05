@@ -6,6 +6,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from typing import Protocol, cast
 from uuid import UUID, uuid4
 
@@ -19,6 +20,7 @@ from src.agent.state import RetryableError, RetryBudget, create_initial_state
 from src.api.citations import citation_from_dict, citations_from_final, citations_from_retrieval_rows
 from src.api.deps import DbSession
 from src.models.agent import AgentRun, ToolCall
+from src.models.agent import TraceEvent
 from src.models.feedback import Feedback
 from src.models.query import Query, RetrievalResult
 from src.models.workspace import Workspace
@@ -39,6 +41,7 @@ from src.schemas.frontend import (
     ChatConversationMessage,
 )
 from src.schemas.shared import ToolCallItem
+from src.schemas.shared import TraceEventItem
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 HEARTBEAT_INTERVAL_SECONDS = 30.0
@@ -276,25 +279,41 @@ async def map_langgraph_event_to_sse(event: dict) -> str | None:
     return None
 
 
-async def _events_with_heartbeat(graph: EventStreamGraph, state: dict) -> AsyncIterator[dict]:
-    iterator = graph.astream_events(
-        dict(state),
-        version="v2",
-        config={"configurable": {"retry_budget": RetryBudget(max_total_retries=3)}},
-    ).__aiter__()
-    next_event_task: asyncio.Future[dict] | None = None
-    while True:
-        if next_event_task is None:
-            next_event_task = asyncio.ensure_future(iterator.__anext__())
-        done, _pending = await asyncio.wait({next_event_task}, timeout=HEARTBEAT_INTERVAL_SECONDS)
-        if not done:
-            yield {"event": "heartbeat", "name": "heartbeat", "data": {}}
-            continue
+async def _events_with_heartbeat(graph: EventStreamGraph, state: dict) -> AsyncIterator[tuple[str, object | None]]:
+    queue: asyncio.Queue[tuple[str, object | None]] = asyncio.Queue()
+
+    async def token_sink(token: str) -> None:
+        await queue.put(("token", token))
+
+    async def producer() -> None:
         try:
-            yield next_event_task.result()
-            next_event_task = None
-        except StopAsyncIteration:
-            return
+            async for event in graph.astream_events(
+                dict(state),
+                version="v2",
+                config={"configurable": {"retry_budget": RetryBudget(max_total_retries=3), "token_sink": token_sink}},
+            ):
+                await queue.put(("graph", event))
+        except Exception as exc:  # noqa: BLE001 - forwarded into SSE contract.
+            await queue.put(("error", exc))
+        finally:
+            await queue.put(("done", None))
+
+    producer_task = asyncio.create_task(producer())
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_INTERVAL_SECONDS)
+            except TimeoutError:
+                yield ("heartbeat", None)
+                continue
+            yield item
+            if item[0] == "done":
+                return
+    finally:
+        if not producer_task.done():
+            producer_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await producer_task
 
 
 async def _tool_calls_for_run(db: DbSession, run_id: UUID) -> list[ToolCallItem]:
@@ -311,6 +330,15 @@ async def _tool_calls_for_run(db: DbSession, run_id: UUID) -> list[ToolCallItem]
         )
         for row in rows
     ]
+
+
+async def _load_conversation_runs(db: DbSession, query_id: UUID) -> list[AgentRun]:
+    rows = (
+        await db.scalars(
+            select(AgentRun).where(AgentRun.query_id == query_id).order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
+        )
+    ).all()
+    return list(rows)
 
 
 @router.post("", response_model=ChatResponse)
@@ -340,7 +368,8 @@ async def chat(request: ChatRequest, db: DbSession) -> ChatResponse:
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
     async def event_generator() -> AsyncIterator[str]:
         start = time.perf_counter()
-        query_id = str(uuid4())
+        conversation_id = str(request.conversation_id or uuid4())
+        query_id = conversation_id
         run_id = str(uuid4())
         state = create_initial_state(original_query=request.query, trace_id=run_id)
         state["query_id"] = query_id
@@ -357,7 +386,18 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
             state["trace_id"] = run_id
             final_state["trace_id"] = run_id
             graph = cast(EventStreamGraph, build_agent_graph())
-            async for event in _events_with_heartbeat(graph, dict(state)):
+            async for item_type, payload in _events_with_heartbeat(graph, dict(state)):
+                if item_type == "heartbeat":
+                    yield format_sse("token", {"content": ""})
+                    continue
+                if item_type == "token":
+                    yield format_sse("token", {"content": str(payload or "")})
+                    continue
+                if item_type == "error":
+                    raise cast(Exception, payload)
+                if item_type == "done":
+                    break
+                event = cast(dict, payload)
                 if event.get("event") == "heartbeat":
                     yield format_sse("token", {"content": ""})
                     continue
@@ -449,9 +489,8 @@ async def list_conversations(
 
     items: list[ChatConversationListItem] = []
     for query, workspace in rows:
-        run = await db.scalar(
-            select(AgentRun).where(AgentRun.query_id == query.id).order_by(AgentRun.created_at.desc()).limit(1)
-        )
+        runs = await _load_conversation_runs(db, query.id)
+        run = runs[-1] if runs else None
         updated_at = (run.ended_at or run.created_at) if run else query.created_at
         items.append(
             ChatConversationListItem(
@@ -464,7 +503,7 @@ async def list_conversations(
                 workspace_slug=query.workspace_slug,
                 created_at=query.created_at,
                 updated_at=updated_at,
-                message_count=2 if (run and run.answer) or query.answer else 1,
+                message_count=len(runs),
                 route=str(getattr(run.route, "value", run.route)) if run and run.route else None,
                 status=str(getattr(run.status, "value", run.status)) if run else None,
             )
@@ -481,45 +520,109 @@ async def get_conversation(db: DbSession, conversation_id: UUID) -> ChatConversa
     workspace = None
     if query.workspace_slug:
         workspace = await db.scalar(select(Workspace).where(Workspace.slug == query.workspace_slug))
-    run = await db.scalar(
-        select(AgentRun).where(AgentRun.query_id == query.id).order_by(AgentRun.created_at.desc()).limit(1)
-    )
+    runs = await _load_conversation_runs(db, query.id)
+    if not runs:
+        maybe_run = await db.scalar(
+            select(AgentRun).where(AgentRun.query_id == query.id).order_by(AgentRun.created_at.desc()).limit(1)
+        )
+        if maybe_run is not None:
+            runs = [maybe_run]
+    latest_run = runs[-1] if runs else None
     retrieval_rows = (
         await db.scalars(
             select(RetrievalResult)
             .where(RetrievalResult.query_id == query.id)
-            .order_by(RetrievalResult.final_rank, RetrievalResult.created_at)
+            .order_by(RetrievalResult.created_at.asc(), RetrievalResult.final_rank.asc())
         )
     ).all()
-    citations = citations_from_final(run.final_citations) if run else []
-    if not citations:
-        citations = citations_from_retrieval_rows(list(retrieval_rows))
+    rows_by_run: dict[UUID, list[RetrievalResult]] = {}
+    for row in retrieval_rows:
+        rows_by_run.setdefault(row.run_id, []).append(row)
 
-    messages = [
-        ChatConversationMessage(
-            id=f"{query.id}:user",
-            role="user",
-            content=query.original_query,
-            created_at=query.created_at,
-        )
-    ]
-    answer = str(run.answer or query.answer or "") if run else str(query.answer or "")
-    if answer:
+    messages: list[ChatConversationMessage] = []
+    seed_query = query.original_query
+    if runs:
+        first_run = runs[0]
+        first_run_query = str(getattr(first_run, "original_query", seed_query) or seed_query)
+        if first_run_query == seed_query:
+            messages.append(
+                ChatConversationMessage(
+                    id=f"{query.id}:user:seed",
+                    role="user",
+                    content=seed_query,
+                    created_at=query.created_at,
+                )
+            )
+        for index, run in enumerate(runs):
+            run_query = str(getattr(run, "original_query", seed_query) or seed_query)
+            if index > 0 or run_query != seed_query:
+                messages.append(
+                    ChatConversationMessage(
+                        id=f"{run.id}:user",
+                        role="user",
+                        content=run_query,
+                        created_at=run.created_at,
+                    )
+                )
+            citations = citations_from_final(run.final_citations) or citations_from_retrieval_rows(
+                rows_by_run.get(run.id, [])
+            )
+            answer = str(run.answer or "")
+            if answer:
+                messages.append(
+                    ChatConversationMessage(
+                        id=f"{run.id}:assistant",
+                        role="assistant",
+                        content=answer,
+                        citations=citations,
+                        created_at=(run.ended_at or run.created_at),
+                    )
+                )
+    else:
         messages.append(
             ChatConversationMessage(
-                id=f"{run.id if run else query.id}:assistant",
-                role="assistant",
-                content=answer,
-                citations=citations,
-                created_at=(run.ended_at or run.created_at) if run else query.created_at,
+                id=f"{query.id}:user",
+                role="user",
+                content=seed_query,
+                created_at=query.created_at,
             )
         )
+        if query.answer:
+            messages.append(
+                ChatConversationMessage(
+                    id=f"{query.id}:assistant",
+                    role="assistant",
+                    content=str(query.answer),
+                    citations=[],
+                    created_at=query.created_at,
+                )
+            )
 
-    updated_at = (run.ended_at or run.created_at) if run else query.created_at
+    trace_events: list[TraceEventItem] = []
+    if latest_run is not None:
+        latest_trace_rows = (
+            await db.scalars(
+                select(TraceEvent).where(TraceEvent.run_id == latest_run.id).order_by(TraceEvent.sequence_no.asc())
+            )
+        ).all()
+        trace_events = [
+            TraceEventItem(
+                node_name=row.node_name,
+                sequence_no=row.sequence_no,
+                status=str(getattr(row.status, "value", row.status)),
+                latency_ms=row.latency_ms,
+                input_summary=row.input_summary,
+                output_summary=row.output_summary,
+                error_message=row.error_message,
+            )
+            for row in latest_trace_rows
+        ]
+
+    updated_at = (latest_run.ended_at or latest_run.created_at) if latest_run else query.created_at
     return ChatConversationDetail(
         id=query.id,
         query_id=query.id,
-        run_id=run.id if run else None,
+        run_id=latest_run.id if latest_run else None,
         title=_stored_conversation_title(query),
         is_archived=bool(getattr(query, "is_archived", False)),
         workspace_id=str(workspace.id) if workspace else None,
@@ -527,6 +630,7 @@ async def get_conversation(db: DbSession, conversation_id: UUID) -> ChatConversa
         created_at=query.created_at,
         updated_at=updated_at,
         messages=messages,
+        trace_events=trace_events,
     )
 
 

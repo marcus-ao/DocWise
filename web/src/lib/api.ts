@@ -52,6 +52,15 @@ export type ConversationDetail = {
   created_at: string
   updated_at: string
   messages: ChatMessage[]
+  trace_events: {
+    node_name: string
+    sequence_no: number
+    status: string
+    latency_ms: number | null
+    input_summary: Record<string, unknown> | null
+    output_summary: Record<string, unknown> | null
+    error_message: string | null
+  }[]
 }
 
 export type ConversationMutationResponse = {

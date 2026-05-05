@@ -1,5 +1,5 @@
-import { ChatConsole } from "@/components/chat/chat-console"
+import { ChatPageEntry } from "@/components/chat/chat-page-entry"
 
 export default function ChatPage() {
-  return <ChatConsole />
+  return <ChatPageEntry />
 }

@@ -57,15 +57,15 @@ export function AgentReasoning({ steps }: AgentReasoningProps) {
             <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
             Agent 实时思考流
           </h3>
-          <div className="text-xs text-muted-foreground">{steps.length > 0 ? `${steps.length} 个节点` : "等待新问题"}</div>
+          {steps.length > 0 ? <div className="text-xs text-muted-foreground">{`${steps.length} 个节点`}</div> : null}
         </div>
       </div>
 
       <ScrollArea className="min-h-0 flex-1 p-4">
         <div className="relative space-y-4 before:absolute before:inset-y-0 before:left-[11px] before:w-px before:bg-border">
           {steps.length === 0 && (
-            <div className="px-2 py-8 text-center text-sm text-muted-foreground">
-              发起一次提问后，这里会显示路由、检索、工具和生成节点。
+            <div className="rounded-2xl border border-dashed border-border bg-card/70 px-4 py-5 text-sm text-muted-foreground shadow-sm">
+              正在等待新的推理节点...
             </div>
           )}
           {steps.map((step, index) => {

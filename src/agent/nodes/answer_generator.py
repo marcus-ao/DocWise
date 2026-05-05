@@ -37,6 +37,10 @@ async def answer_generator(state: AgentState, config: RunnableConfig | None = No
         query=query, chunks=chunks, tool_results=tool_results,
         route=route, error=error,
     )
+    token_sink = None
+    if config:
+        configurable = config.get("configurable", {})
+        token_sink = configurable.get("token_sink")
 
     try:
         tokens: list[str] = []
@@ -44,6 +48,8 @@ async def answer_generator(state: AgentState, config: RunnableConfig | None = No
             messages, model="fast", temperature=0, timeout=60.0,
         ):
             tokens.append(token)
+            if token_sink is not None:
+                await token_sink(token)
 
         answer = "".join(tokens)
         state["answer"] = answer

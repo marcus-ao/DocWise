@@ -31,6 +31,7 @@ import {
   ConversationListResponse,
   formatShortDate,
 } from "@/lib/api"
+import { setActiveConversation } from "@/lib/active-conversation"
 import { notifyConversationsUpdated, subscribeConversationsUpdated } from "@/lib/conversation-events"
 
 type ConversationListProps = {
@@ -107,6 +108,11 @@ export function ConversationList({
     } catch (err) {
       setError(err instanceof Error ? err.message : "重命名失败")
     }
+  }
+
+  function cancelRenaming() {
+    setRenamingId(null)
+    setTitleDraft("")
   }
 
   async function toggleArchive(chatId: string, nextArchived: boolean) {
@@ -202,18 +208,21 @@ export function ConversationList({
                               void renameConversation(chat)
                             }
                             if (event.key === "Escape") {
-                              setRenamingId(null)
-                              setTitleDraft("")
+                              cancelRenaming()
                             }
                           }}
                         />
                         <Button size="sm" onClick={() => void renameConversation(chat)}>
                           保存
                         </Button>
+                        <Button size="sm" variant="ghost" className="px-1.5 text-muted-foreground hover:bg-transparent" onClick={cancelRenaming}>
+                          取消
+                        </Button>
                       </div>
                     ) : (
                       <Link
                         href={`/chat/${chat.id}?from=${source}`}
+                        onClick={() => setActiveConversation(chat.id, source)}
                         className="block truncate text-sm font-medium text-foreground transition-colors hover:text-foreground"
                       >
                         {chat.title}
@@ -221,7 +230,7 @@ export function ConversationList({
                     )}
 
                     <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                      <Badge variant="outline" className="bg-background text-[10px] font-normal">
+                      <Badge variant="outline" className="rounded-full bg-muted/60 px-2.5 text-[10px] font-medium text-foreground/85">
                         {chat.workspace_slug ?? "public_tech"}
                       </Badge>
                       <span className="flex items-center gap-1">
@@ -231,7 +240,7 @@ export function ConversationList({
                         <Clock size={12} /> {formatShortDate(chat.updated_at)}
                       </span>
                       {archived ? (
-                        <Badge variant="outline" className="bg-muted/40 text-[10px] font-normal">
+                        <Badge variant="outline" className="rounded-full bg-muted/75 px-2.5 text-[10px] font-medium text-foreground/85">
                           已存档
                         </Badge>
                       ) : null}

@@ -8,6 +8,7 @@ from src.schemas.shared import CitationItem, ToolCallItem
 class ChatRequest(BaseModel):
     query: str
     workspace_slug: str | None = None
+    conversation_id: UUID | None = None
 
 
 class ChatResponse(BaseModel):
