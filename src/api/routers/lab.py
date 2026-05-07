@@ -39,7 +39,16 @@ async def compare_retrieval_strategies(db: DbSession, request: LabCompareRequest
         try:
             if strategy in {"vector_only", "hybrid", "hybrid_rerank"} and embedding is None:
                 embedding = await embed_with_cache(request.query)
-            chunks = await _run_strategy(db, request.query, workspace_ids, strategy, request.top_k, embedding)
+            chunks = await _run_strategy(
+                db,
+                request.query,
+                workspace_ids,
+                strategy,
+                request.top_k,
+                embedding,
+                rrf_k=request.rrf_k,
+                rerank_top_k=request.rerank_top_k,
+            )
             results[strategy] = [_chunk_result(chunk) for chunk in chunks[: request.top_k]]
         except Exception as exc:  # noqa: BLE001 - lab compare should degrade one strategy at a time.
             results[strategy] = []
@@ -62,6 +71,9 @@ async def _run_strategy(
     strategy: str,
     top_k: int,
     embedding: list[float] | None,
+    *,
+    rrf_k: int = 60,
+    rerank_top_k: int | None = None,
 ) -> list[dict]:
     if strategy == "vector_only":
         return await vector_store.search(db, embedding or [], workspace_ids, top_k=top_k)
@@ -70,10 +82,11 @@ async def _run_strategy(
 
     vector_results = await vector_store.search(db, embedding or [], workspace_ids, top_k=max(top_k * 2, top_k))
     keyword_results = await keyword_search.search(db, query, workspace_ids, top_k=max(top_k * 2, top_k))
-    merged = hybrid.rrf_merge(vector_results, keyword_results)
+    merged = hybrid.rrf_merge(vector_results, keyword_results, k=rrf_k)
     if strategy == "hybrid":
         return merged[:top_k]
-    reranked, _fallback = await reranker.rerank(query, merged, top_k=top_k)
+    rerank_output = rerank_top_k if rerank_top_k is not None else top_k
+    reranked, _fallback = await reranker.rerank(query, merged, top_k=rerank_output)
     return reranked
 
 

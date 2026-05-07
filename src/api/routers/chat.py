@@ -19,9 +19,7 @@ from src.agent.graph import build_agent_graph, run_agent
 from src.agent.state import RetryableError, RetryBudget, create_initial_state
 from src.api.citations import citation_from_dict, citations_from_final, citations_from_retrieval_rows
 from src.api.deps import DbSession
-from src.models.agent import AgentRun, ToolCall
-from src.models.agent import TraceEvent
-from src.models.base import AgentRunStatus
+from src.models.agent import AgentRun, ToolCall, TraceEvent
 from src.models.feedback import Feedback
 from src.models.query import Query, RetrievalResult
 from src.models.workspace import Workspace
@@ -41,8 +39,7 @@ from src.schemas.frontend import (
     ChatConversationListResponse,
     ChatConversationMessage,
 )
-from src.schemas.shared import ToolCallItem
-from src.schemas.shared import TraceEventItem
+from src.schemas.shared import ToolCallItem, TraceEventItem
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 HEARTBEAT_INTERVAL_SECONDS = 30.0

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { motion } from "framer-motion"
+import { AnimatePresence, motion } from "framer-motion"
 
 import { MessageBubble } from "./message-bubble"
 import type { ChatMessage } from "@/lib/api"
@@ -14,20 +14,29 @@ interface MessageListProps {
 export function MessageList({ messages, isStreaming = false }: MessageListProps) {
   return (
     <div className="flex flex-col gap-6 pb-4">
-      {messages.map((message, index) => (
-        <motion.div
-          key={message.id}
-          id={`msg-${message.id}`}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-        >
-          <MessageBubble
-            message={message}
-            isStreamingPending={isStreaming && index === messages.length - 1 && message.role === "assistant"}
-          />
-        </motion.div>
-      ))}
+      <AnimatePresence initial={false} mode="popLayout">
+        {messages.map((message, index) => (
+          <motion.div
+            layout="position"
+            key={message.id}
+            id={`msg-${message.id}`}
+            initial={{ opacity: 0, y: 10, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ 
+              type: "spring",
+              stiffness: 400,
+              damping: 30,
+              mass: 1
+            }}
+          >
+            <MessageBubble
+              message={message}
+              isStreamingPending={isStreaming && index === messages.length - 1 && message.role === "assistant"}
+            />
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   )
 }

@@ -75,6 +75,7 @@ export function AgentReasoning({ steps }: AgentReasoningProps) {
             const expanded = expandedSteps[String(step.id)] ?? index === steps.length - 1
             return (
               <motion.div
+                layout
                 key={step.id}
                 initial={{ opacity: 0, x: 15, scale: 0.98 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
@@ -120,6 +121,7 @@ export function AgentReasoning({ steps }: AgentReasoningProps) {
                   <AnimatePresence initial={false}>
                     {hasMeta && expanded && (
                       <motion.div
+                        layout
                         initial={{ height: 0, opacity: 0, marginTop: 0 }}
                         animate={{ height: "auto", opacity: 1, marginTop: 12 }}
                         exit={{ height: 0, opacity: 0, marginTop: 0 }}

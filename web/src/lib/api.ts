@@ -171,6 +171,20 @@ export type LabCompareResponse = {
   errors: Record<string, string>
 }
 
+export type Workspace = {
+  id: string
+  slug: string
+  name: string
+  workspace_type: string
+  project_name: string | null
+  description: string | null
+  is_active: boolean
+}
+
+export type WorkspaceListResponse = {
+  items: Workspace[]
+}
+
 export type DocumentListItem = {
   id: string
   workspace_id: string

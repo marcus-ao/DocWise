@@ -31,7 +31,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased bg-background text-foreground transition-colors duration-500 h-screen w-screen overflow-hidden flex`}
+        className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased bg-background text-foreground transition-colors duration-700 h-screen w-screen overflow-hidden flex`}
       >
         <ThemeProvider
           attribute="class"
@@ -42,7 +42,7 @@ export default function RootLayout({
           <BackendStatusProvider>
             <TooltipProvider>
               <Sidebar />
-              <main className="flex-1 flex min-w-0 flex-col bg-muted/10 transition-colors duration-500 dark:bg-background relative overflow-hidden">
+              <main className="flex-1 flex min-w-0 flex-col bg-muted/10 transition-colors duration-700 dark:bg-background relative overflow-hidden">
                 {children}
               </main>
             </TooltipProvider>

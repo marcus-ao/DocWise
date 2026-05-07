@@ -11,6 +11,7 @@ import { PageBack } from "@/components/layout/page-back"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiJson, EvalBadCaseItem, EvalTrendItem } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 type EvalTrendsResponse = {
   trends: EvalTrendItem[]
@@ -76,7 +77,7 @@ export default function EvalPage() {
         <MetricCard title="MRR" value={(latest?.mrr ?? 0).toFixed(2)} icon={BarChart2} color="purple" />
         <MetricCard title="Citation Accuracy" value={`${toPercent(latest?.citation_accuracy)}%`} icon={CheckCircle} color="green" />
         <MetricCard title="Bad Cases" value={String(latest?.bad_case_count ?? badCases.length)} icon={AlertTriangle} color="orange" />
-      </div>
+        </div>
 
       <div className="flex gap-6 flex-1 min-h-0 xl:flex-row flex-col">
         <Card className="flex-1 p-6 bg-background/50 backdrop-blur-sm border-border/50 flex flex-col">
@@ -158,30 +159,50 @@ function MetricCard({
   color: "neutral" | "purple" | "green" | "orange"
 }) {
   const themes = {
-    neutral: { text: "text-foreground", bg: "bg-foreground" },
-    purple: { text: "text-purple-500", bg: "bg-purple-500" },
-    green: { text: "text-green-500", bg: "bg-green-500" },
-    orange: { text: "text-orange-500", bg: "bg-orange-500" },
+    neutral: {
+      text: "text-foreground",
+      bg: "bg-foreground/10",
+      glow: "bg-foreground/20",
+      shadow: "shadow-foreground/5",
+    },
+    purple: {
+      text: "text-purple-500",
+      bg: "bg-purple-500/10",
+      glow: "bg-purple-500/20",
+      shadow: "shadow-purple-500/5",
+    },
+    green: {
+      text: "text-emerald-500",
+      bg: "bg-emerald-500/10",
+      glow: "bg-emerald-500/20",
+      shadow: "shadow-emerald-500/5",
+    },
+    orange: {
+      text: "text-orange-500",
+      bg: "bg-orange-500/10",
+      glow: "bg-orange-500/20",
+      shadow: "shadow-orange-500/5",
+    },
   }
-  const theme = themes[color]
+  const theme = themes[color] || themes.neutral
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="p-6 rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm relative overflow-hidden group"
+      className="p-6 rounded-2xl border border-border/50 bg-card/60 backdrop-blur-md relative overflow-hidden group hover:border-border transition-colors shadow-sm"
     >
-      <div className={`absolute -right-8 -top-8 w-32 h-32 rounded-full blur-3xl opacity-10 transition-all duration-500 group-hover:scale-125 group-hover:opacity-20 ${theme.bg}`} />
+      <div className={cn("absolute -right-6 -top-6 w-24 h-24 rounded-full blur-2xl opacity-40 group-hover:opacity-70 transition-all duration-500", theme.glow)} />
       <div className="flex justify-between items-start relative z-10">
         <div>
           <div className="text-sm text-muted-foreground font-medium mb-1">{title}</div>
           <div className="text-3xl font-bold tracking-tight">{value}</div>
         </div>
-        <div className={`p-2 rounded-lg bg-muted shadow-inner ${theme.text}`}>
+        <div className={cn("p-2.5 rounded-xl shadow-inner", theme.bg, theme.text, theme.shadow)}>
           <Icon size={20} />
         </div>
       </div>
-      <div className="mt-4 text-[10px] uppercase tracking-wider font-bold text-muted-foreground/60 bg-muted/30 inline-flex px-2 py-0.5 rounded relative z-10">
+      <div className="mt-5 text-[11px] uppercase tracking-wider font-semibold text-muted-foreground/70 bg-muted/40 inline-flex px-2 py-0.5 rounded-md relative z-10 border border-border/30">
         最新已完成批次
       </div>
     </motion.div>

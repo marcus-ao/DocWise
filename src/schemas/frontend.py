@@ -3,8 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from src.schemas.shared import CitationItem
-from src.schemas.shared import TraceEventItem
+from src.schemas.shared import CitationItem, TraceEventItem
 
 
 class ChatConversationListItem(BaseModel):
@@ -125,6 +124,8 @@ class LabCompareRequest(BaseModel):
     workspace_ids: list[str] = Field(default_factory=lambda: ["public_tech"])
     strategies: list[str] = Field(default_factory=lambda: ["vector_only", "hybrid_rerank"])
     top_k: int = Field(default=5, ge=1, le=20)
+    rrf_k: int = Field(default=60, ge=1, le=500)
+    rerank_top_k: int | None = Field(default=None, ge=1, le=20)
 
 
 class LabChunkResult(BaseModel):
@@ -144,6 +145,20 @@ class LabCompareResponse(BaseModel):
     timing_ms: dict[str, int]
     degraded: bool = False
     errors: dict[str, str] = Field(default_factory=dict)
+
+
+class WorkspaceItem(BaseModel):
+    id: UUID
+    slug: str
+    name: str
+    workspace_type: str
+    project_name: str | None
+    description: str | None
+    is_active: bool
+
+
+class WorkspaceListResponse(BaseModel):
+    items: list[WorkspaceItem]
 
 
 class DocumentChunkItem(BaseModel):

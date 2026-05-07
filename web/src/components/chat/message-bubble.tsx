@@ -149,7 +149,26 @@ export function MessageBubble({ message, isStreamingPending = false }: MessageBu
             {isUser ? (
               <div className="whitespace-pre-wrap text-foreground font-medium">{message.content}</div>
             ) : (
-              <div className="prose prose-sm prose-neutral max-w-none break-words text-card-foreground dark:prose-invert prose-p:my-3 prose-p:leading-7 prose-p:text-foreground/90 prose-headings:mb-4 prose-headings:text-foreground prose-strong:text-foreground prose-em:text-foreground prose-code:text-foreground prose-code:before:content-none prose-code:after:content-none prose-li:text-foreground prose-li:marker:text-foreground prose-a:font-medium prose-a:text-foreground prose-blockquote:border-border prose-blockquote:text-foreground prose-ol:text-foreground prose-ul:text-foreground prose-hr:border-border prose-table:text-foreground prose-th:border-border prose-th:text-foreground prose-td:border-border prose-td:text-foreground prose-pre:m-0 prose-pre:border-0 prose-pre:bg-transparent prose-pre:p-0">
+              <motion.div 
+                initial={isStreamingPending ? { opacity: 0 } : false}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.15 }}
+                className="prose prose-sm prose-neutral max-w-none break-words text-card-foreground dark:prose-invert 
+                prose-p:my-4 prose-p:leading-relaxed prose-p:text-foreground/90 
+                prose-headings:mt-6 prose-headings:mb-4 prose-headings:font-bold prose-headings:text-foreground
+                prose-strong:text-foreground prose-strong:font-bold
+                prose-em:text-foreground/80
+                prose-code:text-foreground prose-code:before:content-none prose-code:after:content-none
+                prose-li:text-foreground/90 prose-li:my-1 prose-li:marker:text-primary
+                prose-a:font-medium prose-a:text-primary prose-a:no-underline hover:prose-a:underline
+                prose-blockquote:border-l-4 prose-blockquote:border-primary/30 prose-blockquote:bg-primary/5 prose-blockquote:py-1 prose-blockquote:px-4 prose-blockquote:rounded-r-lg prose-blockquote:text-foreground/80
+                prose-ol:text-foreground/90 prose-ul:text-foreground/90
+                prose-hr:border-border/60 prose-hr:my-8
+                prose-table:text-foreground prose-table:border-collapse
+                prose-th:border-b-2 prose-th:border-border prose-th:text-foreground prose-th:bg-muted/30 prose-th:px-4 prose-th:py-2
+                prose-td:border-b prose-td:border-border/50 prose-td:px-4 prose-td:py-2
+                prose-pre:m-0 prose-pre:border-0 prose-pre:bg-transparent prose-pre:p-0"
+              >
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
@@ -201,7 +220,7 @@ export function MessageBubble({ message, isStreamingPending = false }: MessageBu
                 >
                   {message.content}
                 </ReactMarkdown>
-              </div>
+              </motion.div>
             )}
           </div>
         )}

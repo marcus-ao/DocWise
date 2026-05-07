@@ -23,6 +23,8 @@ export default function DocumentsPage() {
   const [isUploading, setIsUploading] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
 
+  const abortControllerRef = React.useRef<AbortController | null>(null)
+
   const loadDocuments = React.useCallback(() => {
     if (!backendReady) {
       setDocuments([])
@@ -30,15 +32,31 @@ export default function DocumentsPage() {
       setError(null)
       return
     }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     setIsLoading(true)
     const query = workspace === "All" ? { limit: 100 } : { workspace_slug: workspace, limit: 100 }
-    apiJson<DocumentListResponse>("/documents", { query })
+    
+    apiJson<DocumentListResponse>("/documents", { query, signal: controller.signal })
       .then((data) => {
+        if (controller.signal.aborted) return
         setDocuments(data.items)
         setError(null)
       })
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setIsLoading(false))
+      .catch((err: Error) => {
+        if (controller.signal.aborted) return
+        setError(err.message)
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsLoading(false)
+        }
+      })
   }, [backendReady, workspace])
 
   React.useEffect(() => {
