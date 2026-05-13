@@ -83,7 +83,10 @@ export type ReasoningEvent = {
   confidence?: number
   workspace_policy?: string
   workspace_ids?: string[]
+  effective_workspace_slugs?: string[]
   selected_project?: string | null
+  scope_reason_code?: string | null
+  scope_reason_params?: Record<string, unknown> | null
   chunk_count?: number
   top_k?: number
   fallback?: boolean
@@ -163,12 +166,30 @@ export type LabChunkResult = {
   page_number: number | null
 }
 
+export type LabHistoryTurn = {
+  query: string
+  answer: string
+  tool_facts?: string[]
+}
+
+export type LabRewriterInfo = {
+  used: boolean
+  route: string
+  original_query: string
+  rewritten_query: string
+  effective_query: string
+  fallback_reason: string
+  missing_entities: string[]
+  diagnostic_hint?: string | null
+}
+
 export type LabCompareResponse = {
   results: Record<string, LabChunkResult[]>
   overlap_matrix: Record<string, number>
   timing_ms: Record<string, number>
   degraded: boolean
   errors: Record<string, string>
+  rewriter: LabRewriterInfo
 }
 
 export type Workspace = {

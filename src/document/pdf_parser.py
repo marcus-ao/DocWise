@@ -45,6 +45,7 @@ def _parse_pdf_sync(file_bytes: bytes, file_name: str, content_type: str) -> Par
         content_type=content_type,
         parser_name=PARSER_NAME,
         parser_version=PARSER_VERSION,
+        byte_size=len(file_bytes),
         blocks=blocks,
         metadata={"page_count": page_count},
     )

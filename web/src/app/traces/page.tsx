@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Activity, Clock, Database, Layers } from "lucide-react"
+import { Activity, ChevronDown, ChevronRight, Clock, Database, Layers } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -181,6 +181,7 @@ export default function TracesPage() {
 }
 
 function TraceNode({ node, delay }: { node: TraceTimelineNode; delay: number }) {
+  const [isExpanded, setIsExpanded] = React.useState(false)
   const colors =
     {
       route: "bg-muted text-foreground border-border",
@@ -199,36 +200,88 @@ function TraceNode({ node, delay }: { node: TraceTimelineNode; delay: number }) 
       llm: <Activity size={14} />,
     }[node.type] ?? <Activity size={14} />
   const width = `${Math.min(100, Math.max(12, node.duration_ms / 25))}%`
+  const hasDetails = Boolean(node.error_message) || Object.keys(node.metadata ?? {}).length > 0
+  const metadataText = React.useMemo(
+    () => JSON.stringify(node.metadata ?? {}, null, 2),
+    [node.metadata]
+  )
 
   return (
     <motion.div
       initial={{ opacity: 0, x: 15, scale: 0.98 }}
       animate={{ opacity: 1, x: 0, scale: 1 }}
       transition={{ type: "spring", stiffness: 400, damping: 30, delay }}
-      className="relative flex items-center gap-4 group"
+      className="relative flex items-start gap-4 group"
       style={{ marginLeft: node.indent_level * 24 }}
     >
       <div className={`w-5 h-5 rounded-full border bg-background flex items-center justify-center shrink-0 z-10 shadow-sm ${colors.split(" ")[2]}`}>
         <div className={`w-1.5 h-1.5 rounded-full ${colors.split(" ")[1].replace("text-", "bg-")}`} />
       </div>
 
-      <div className={`flex-1 flex items-center justify-between p-3 rounded-xl border bg-background/40 backdrop-blur-sm transition-all duration-300 hover:bg-muted/50 hover:shadow-sm ${colors}`}>
-        <div className="flex items-center gap-2 min-w-0">
-          {icon}
-          <span className="font-medium text-sm truncate">{node.title}</span>
-          {node.status === "error" && <Badge variant="destructive">error</Badge>}
-        </div>
-        <div className="flex items-center gap-4 shrink-0">
-          <div className="h-1.5 w-24 bg-background/80 shadow-inner rounded-full overflow-hidden">
-            <motion.div 
-              initial={{ width: 0 }}
-              animate={{ width }}
-              transition={{ delay: delay + 0.15, duration: 0.5, type: "spring", stiffness: 120 }}
-              className={`h-full rounded-full ${colors.split(" ")[1].replace("text-", "bg-")}`} 
-            />
+      <div className={`flex-1 rounded-xl border bg-background/40 backdrop-blur-sm transition-all duration-300 hover:bg-muted/50 hover:shadow-sm ${colors}`}>
+        <button
+          type="button"
+          onClick={() => {
+            if (hasDetails) {
+              setIsExpanded((value) => !value)
+            }
+          }}
+          className={cn(
+            "flex w-full items-center justify-between gap-3 p-3 text-left",
+            hasDetails ? "cursor-pointer" : "cursor-default"
+          )}
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            {icon}
+            <span className="font-medium text-sm truncate">{node.title}</span>
+            {node.status === "error" && <Badge variant="destructive">error</Badge>}
+            {hasDetails ? (
+              <Badge variant="secondary" className="hidden sm:inline-flex">
+                details
+              </Badge>
+            ) : null}
           </div>
-          <span className="text-xs font-mono w-12 text-right opacity-80">{formatLatency(node.duration_ms)}</span>
-        </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="h-1.5 w-24 bg-background/80 shadow-inner rounded-full overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width }}
+                transition={{ delay: delay + 0.15, duration: 0.5, type: "spring", stiffness: 120 }}
+                className={`h-full rounded-full ${colors.split(" ")[1].replace("text-", "bg-")}`}
+              />
+            </div>
+            <span className="text-xs font-mono w-12 text-right opacity-80">{formatLatency(node.duration_ms)}</span>
+            {hasDetails ? (
+              isExpanded ? <ChevronDown size={16} className="opacity-70" /> : <ChevronRight size={16} className="opacity-70" />
+            ) : null}
+          </div>
+        </button>
+
+        {hasDetails ? (
+          <AnimatePresence initial={false}>
+            {isExpanded ? (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="overflow-hidden border-t border-border/40"
+              >
+                <div className="space-y-3 p-4">
+                  {node.error_message ? (
+                    <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-sm text-red-500">
+                      {node.error_message}
+                    </div>
+                  ) : null}
+                  {Object.keys(node.metadata ?? {}).length > 0 ? (
+                    <pre className="overflow-x-auto rounded-lg border border-border/50 bg-background/80 p-3 text-xs leading-6 text-foreground/90">{metadataText}</pre>
+                  ) : null}
+                </div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        ) : null}
       </div>
     </motion.div>
   )

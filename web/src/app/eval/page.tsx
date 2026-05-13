@@ -90,8 +90,9 @@ export default function EvalPage() {
                 ))}
               </div>
             ) : chartData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-                暂无评估批次。运行 eval 后会展示趋势曲线。
+              <div className="mx-auto flex h-full max-w-lg items-center justify-center text-center text-sm leading-7 text-muted-foreground">
+                暂无评估批次。这里展示的是批量 `eval` 结果趋势，不会自动读取历史会话或 trace；
+                运行一次 eval 后才会出现趋势曲线。
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">

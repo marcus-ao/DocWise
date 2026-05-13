@@ -62,6 +62,11 @@ def _token_count(text: str) -> int:
     return len(_tokenize(text))
 
 
+def token_count(text: str) -> int:
+    """Public alias for token estimation used by context runtime and other modules."""
+    return _token_count(text)
+
+
 def _split_words_with_overlap(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
     words = re.findall(r"\S+", text)
     if not words:

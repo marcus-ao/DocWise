@@ -2,13 +2,35 @@
 
 import * as React from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { DatabaseZap, PanelRightClose, PanelRightOpen, Paperclip, Send, ArrowDown, Maximize2, Minimize2 } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import {
+  ArrowDown,
+  ChevronDown,
+  DatabaseZap,
+  Hash,
+  Maximize2,
+  Minimize2,
+  PanelRightClose,
+  PanelRightOpen,
+  Paperclip,
+  Send,
+} from "lucide-react"
 
 import { AgentReasoning, ReasoningStep } from "@/components/chat/agent-reasoning"
 import { MessageList } from "@/components/chat/message-list"
 import { useBackendStatus } from "@/components/providers/backend-status-provider"
 import { PageBack } from "@/components/layout/page-back"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import {
   apiJson,
@@ -17,13 +39,51 @@ import {
   ChatMessage,
   ConversationDetail,
   ReasoningEvent,
+  Workspace,
+  WorkspaceListResponse,
 } from "@/lib/api"
 import { setActiveConversation } from "@/lib/active-conversation"
 import { notifyConversationsUpdated } from "@/lib/conversation-events"
 
-const DEFAULT_WORKSPACE = "public_tech"
+const AUTO_WORKSPACE = "__auto__"
 const COLLAPSED_TEXTAREA_HEIGHT = 40
 const EXPANDED_TEXTAREA_HEIGHT = 240
+
+function describeScopeDecision(event: Pick<ReasoningEvent, "scope_reason_code" | "scope_reason_params" | "selected_project">) {
+  const code = event.scope_reason_code
+  const params = event.scope_reason_params ?? {}
+  const explicit = typeof params.explicit === "string" ? params.explicit : undefined
+  const aliasChosen = typeof params.alias_chosen === "string" ? params.alias_chosen : undefined
+  const inheritedFromTurn = typeof params.inherited_from_turn === "number" ? params.inherited_from_turn : undefined
+  const projectSlug = typeof params.project_slug === "string" ? params.project_slug : event.selected_project ?? undefined
+
+  switch (code) {
+    case "explicit_plus_alias":
+      return projectSlug
+        ? `检测到问题涉及 ${projectSlug}，已在显式知识域基础上合并项目上下文`
+        : "显式知识域与项目别名已合并"
+    case "explicit_conflict_ignored":
+      return explicit
+        ? `已尊重显式选择 ${explicit}，忽略其他项目候选`
+        : "已尊重显式项目选择，忽略其他项目候选"
+    case "explicit_only":
+      return explicit ? `按显式选择 ${explicit} 作为首要知识域` : "按显式选择确定知识域"
+    case "auto_project_matched":
+      return projectSlug ? `自动命中项目 ${projectSlug}` : "自动命中项目知识域"
+    case "route_downgrade":
+      return "当前问题未命中项目知识域，已按路由默认范围降级"
+    case "inherited_from_turn":
+      return inheritedFromTurn !== undefined
+        ? `当前问题未命中显式或别名，已继承第 ${inheritedFromTurn} 轮的知识域范围`
+        : "当前问题未命中显式或别名，已继承上一轮知识域范围"
+    case "out_of_scope":
+      return "当前问题已判定为超出范围"
+    case "auto_route_default":
+      return "未命中显式或项目别名，已按路由默认范围处理"
+    default:
+      return undefined
+  }
+}
 
 function StreamingSquare() {
   return (
@@ -173,8 +233,12 @@ type ChatConsoleProps = {
 }
 
 export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsoleProps) {
+  const router = useRouter()
+  const pathname = usePathname()
   const { ready: backendReady, checked: backendChecked, message: backendMessage } = useBackendStatus()
   const [input, setInput] = React.useState("")
+  const [workspaces, setWorkspaces] = React.useState<Workspace[]>([])
+  const [selectedWorkspaceSlug, setSelectedWorkspaceSlug] = React.useState<string>(AUTO_WORKSPACE)
   const [messages, setMessages] = React.useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -202,6 +266,30 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
   const isUserScrollingRef = React.useRef(false)
   const [isUserScrolling, setIsUserScrollingState] = React.useState(false)
   const isRunActive = isStreaming || remoteRunStatus === "running"
+
+  const chatWorkspaceOptions = React.useMemo(
+    () =>
+      workspaces.filter(
+        (workspace) =>
+          workspace.is_active &&
+          workspace.workspace_type !== "mock_ops" &&
+          (workspace.slug === "public_tech" || workspace.workspace_type === "project_pack")
+      ),
+    [workspaces]
+  )
+
+  const selectedWorkspaceLabel = React.useMemo(() => {
+    if (selectedWorkspaceSlug === AUTO_WORKSPACE) {
+      return "Auto"
+    }
+    return chatWorkspaceOptions.find((workspace) => workspace.slug === selectedWorkspaceSlug)?.name ?? selectedWorkspaceSlug
+  }, [chatWorkspaceOptions, selectedWorkspaceSlug])
+
+  React.useEffect(() => {
+    apiJson<WorkspaceListResponse>("/workspaces")
+      .then((data) => setWorkspaces(data.items))
+      .catch(() => setWorkspaces([]))
+  }, [])
 
   const setIsUserScrolling = React.useCallback((value: boolean) => {
     isUserScrollingRef.current = value
@@ -287,6 +375,17 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
     setActiveConversationId(conversationId)
   }, [conversationId])
 
+  React.useEffect(() => {
+    // A fresh chat starts at `/chat`, but once the backend assigns a real
+    // conversation id we want the URL to become `/chat/<uuid>`. We defer the
+    // route replace until streaming ends so the component is not remounted in
+    // the middle of an active SSE response.
+    if (conversationId) return
+    if (!activeConversationId || isStreaming) return
+    if (pathname !== "/chat") return
+    router.replace(`/chat/${activeConversationId}`)
+  }, [activeConversationId, conversationId, isStreaming, pathname, router])
+
   const loadConversation = React.useCallback(
     async (conversationIdToLoad: string) => {
       const conversation = await apiJson<ConversationDetail>(`/chat/conversations/${conversationIdToLoad}`)
@@ -329,7 +428,12 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
   )
 
   React.useEffect(() => {
-    if (!activeConversationId || !backendReady) return
+    // When a brand-new conversation receives its first `run` event, we switch
+    // to the server-issued conversation id before the stream is finished.
+    // Reloading the conversation during that window can replace the locally
+    // seeded assistant bubble with a server snapshot that still has empty
+    // content, breaking subsequent token updates until a manual refresh.
+    if (!activeConversationId || !backendReady || isStreaming) return
     let cancelled = false
     loadConversation(activeConversationId).catch((err: Error) => {
       if (!cancelled) setError(err.message)
@@ -337,7 +441,7 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
     return () => {
       cancelled = true
     }
-  }, [activeConversationId, backendReady, loadConversation])
+  }, [activeConversationId, backendReady, isStreaming, loadConversation])
 
   React.useEffect(() => {
     if (!activeConversationId || !backendReady || isStreaming || remoteRunStatus !== "running") return
@@ -370,15 +474,18 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
 
   const mergeReasoning = React.useCallback((event: ReasoningEvent) => {
     setReasoningSteps((prev) => {
+      const scopeReason = describeScopeDecision(event)
       const detailParts = [
         event.decision ? `决策: ${event.decision}` : null,
-        event.reason ?? null,
+        scopeReason ?? event.reason ?? null,
         event.confidence !== undefined ? `置信度: ${event.confidence.toFixed(2)}` : null,
       ].filter(Boolean)
       const meta = [
         event.workspace_policy ? `工作区策略：${event.workspace_policy}` : null,
         event.workspace_ids?.length ? `工作区范围：${event.workspace_ids.join(", ")}` : null,
+        event.effective_workspace_slugs?.length ? `知识域范围：${event.effective_workspace_slugs.join(", ")}` : null,
         event.selected_project ? `命中项目：${event.selected_project}` : null,
+        event.scope_reason_code ? `范围决策：${event.scope_reason_code}` : null,
         event.chunk_count !== undefined ? `候选片段数：${event.chunk_count}` : null,
         event.top_k !== undefined ? `重排保留数：${event.top_k}` : null,
         event.fallback ? "当前节点已降级处理" : null,
@@ -459,7 +566,7 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
           signal: abortController.signal,
           body: JSON.stringify({
             query,
-            workspace_slug: DEFAULT_WORKSPACE,
+            workspace_slug: selectedWorkspaceSlug === AUTO_WORKSPACE ? undefined : selectedWorkspaceSlug,
             conversation_id: activeConversationId ?? null,
           }),
         })
@@ -505,15 +612,24 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
               setRemoteRunStatus("running")
             }
           if (event === "route") {
+            const scopeReason = describeScopeDecision(payload as ReasoningEvent)
+            const hasEffectiveScopes = Array.isArray(payload.effective_workspace_slugs)
+              ? payload.effective_workspace_slugs.length > 0
+              : false
+            const routeNode = hasEffectiveScopes || payload.scope_reason_code ? "scope_selector" : "query_router"
+            const routeTitle = routeNode === "scope_selector" ? "知识域范围" : "路由决策"
             mergeReasoning({
-              node: "query_router",
-              title: "路由决策",
+              node: routeNode,
+              title: routeTitle,
               decision: payload.route,
-              reason: payload.selected_project ? `命中项目 ${payload.selected_project}` : "已完成路由判断",
+              reason: scopeReason ?? (payload.selected_project ? `命中项目 ${payload.selected_project}` : "已完成路由判断"),
               confidence: payload.confidence,
               workspace_policy: payload.workspace_policy,
               workspace_ids: payload.workspace_ids,
+              effective_workspace_slugs: payload.effective_workspace_slugs,
               selected_project: payload.selected_project,
+              scope_reason_code: payload.scope_reason_code,
+              scope_reason_params: payload.scope_reason_params,
               status: "complete",
             })
           }
@@ -636,7 +752,7 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
       activeRunIdRef.current = null
       setIsStreaming(false)
     }
-  }, [activeConversationId, backendReady, input, isRunActive, mergeReasoning, seededThinkingStep])
+  }, [activeConversationId, backendReady, input, isRunActive, mergeReasoning, seededThinkingStep, selectedWorkspaceSlug])
 
   return (
     <div className="relative flex h-full w-full overflow-hidden">
@@ -649,10 +765,51 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
                   <PageBack label={backLabel ?? "返回"} href={backHref} className="mb-0" />
                 </div>
               )}
-              <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-sm">
-                <span className="h-2 w-2 rounded-full bg-green-500" />
-                Public Tech Workspace
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  title={
+                    selectedWorkspaceSlug === AUTO_WORKSPACE
+                      ? "系统会根据问题自动决定知识域范围"
+                      : "当前使用显式选择的知识域；命中项目别名时后端仍可能合并项目上下文"
+                  }
+                  className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/60"
+                >
+                  <span className="h-2 w-2 rounded-full bg-green-500" />
+                  <span>{selectedWorkspaceLabel}</span>
+                  <ChevronDown size={14} className="text-muted-foreground" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-64 border border-border/60 bg-popover/95 backdrop-blur-xl shadow-2xl rounded-xl p-1.5">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>知识域范围</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup value={selectedWorkspaceSlug} onValueChange={setSelectedWorkspaceSlug}>
+                      <DropdownMenuRadioItem value={AUTO_WORKSPACE} className="cursor-pointer rounded-lg gap-2 py-2">
+                        <div className="flex flex-col">
+                          <span className="font-medium">Auto</span>
+                          <span className="text-xs text-muted-foreground">系统会根据问题自动决定知识域范围</span>
+                        </div>
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuSeparator className="bg-border/40" />
+                      {chatWorkspaceOptions.map((workspace) => (
+                        <DropdownMenuRadioItem
+                          key={workspace.slug}
+                          value={workspace.slug}
+                          className="cursor-pointer rounded-lg gap-2 py-2"
+                        >
+                          <div className="flex min-w-0 flex-col">
+                            <span className="flex items-center gap-1.5 font-medium">
+                              <Hash size={12} className="text-muted-foreground" />
+                              {workspace.name}
+                            </span>
+                            <span className="truncate text-xs text-muted-foreground">
+                              {workspace.description ?? workspace.slug}
+                            </span>
+                          </div>
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
               {!backendReady && backendChecked ? (
                 <span className="max-w-[460px] truncate text-xs text-amber-500">{backendMessage}</span>
               ) : error ? (

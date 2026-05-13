@@ -319,6 +319,18 @@ async def purge_document(
 
     bucket = document.storage_bucket
     key = document.storage_key
+    shared_reference_count = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(Document)
+            .where(
+                Document.storage_bucket == bucket,
+                Document.storage_key == key,
+                Document.id != document_id,
+            )
+        )
+        or 0
+    )
     retrieval_result = await db.execute(delete(RetrievalResult).where(RetrievalResult.document_id == document_id))
     retrieval_count = int(retrieval_result.rowcount or 0)
     chunks_result = await db.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document_id))
@@ -326,11 +338,18 @@ async def purge_document(
     document_result = await db.execute(delete(Document).where(Document.id == document_id))
 
     object_deleted: bool | None = None
-    try:
-        minio_client.remove_object(bucket, key)
-        object_deleted = True
-    except Exception:
-        object_deleted = False
+    warning: str | None = None
+    if shared_reference_count == 0:
+        try:
+            minio_client.remove_object(bucket, key)
+            object_deleted = True
+        except Exception:
+            object_deleted = False
+    else:
+        warning = (
+            f"Storage object retained because {shared_reference_count} other document "
+            f"row(s) still reference {bucket}/{key}."
+        )
 
     await db.commit()
     return DocumentDeleteResponse(
@@ -343,7 +362,7 @@ async def purge_document(
         storage_object_deleted=object_deleted,
         storage_bucket=bucket,
         storage_key=key,
-        warning=None if int(document_result.rowcount or 0) else "Document row was not deleted.",
+        warning=warning or (None if int(document_result.rowcount or 0) else "Document row was not deleted."),
     )
 
 

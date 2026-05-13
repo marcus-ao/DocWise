@@ -30,7 +30,7 @@ async def refusal_checker(state: AgentState, config: RunnableConfig | None = Non
     await write_trace_event(
         run_id=state["trace_id"],
         node_name="refusal_checker",
-        sequence_no=12,
+        sequence_no=13,
         status="success",
         input_summary={
             "route": route,

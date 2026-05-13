@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 from sqlalchemy import select
+from sqlalchemy.orm import load_only, noload
 
 from src.api.deps import DbSession
 from src.models.workspace import Workspace
@@ -15,7 +16,21 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 async def list_workspaces(db: DbSession) -> WorkspaceListResponse:
     workspaces = (
         await db.scalars(
-            select(Workspace).where(Workspace.is_active.is_(True)).order_by(Workspace.slug)
+            select(Workspace)
+            .options(
+                load_only(
+                    Workspace.id,
+                    Workspace.slug,
+                    Workspace.name,
+                    Workspace.workspace_type,
+                    Workspace.project_name,
+                    Workspace.description,
+                    Workspace.is_active,
+                ),
+                noload(Workspace.documents),
+            )
+            .where(Workspace.is_active.is_(True))
+            .order_by(Workspace.slug)
         )
     ).all()
     items = [

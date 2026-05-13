@@ -161,11 +161,15 @@ async def create_agent_run(
     query_id: str | UUID,
     original_query: str,
     workspace_slug: str | None = None,
+    turn_index: int | None = None,
+    parent_run_id: str | UUID | None = None,
+    conversation_title: str | None = None,
+    db_session: AsyncSession | None = None,
 ) -> str:
     """Create agent_runs record (status=running), return run_id. Never throws."""
     run_id = str(uuid.uuid4())
     try:
-        async with async_session_factory() as session:
+        async def _create(session: AsyncSession) -> None:
             qid = _to_uuid(query_id)
             existing = await session.scalar(select(Query).where(Query.id == qid))
             if existing is None:
@@ -173,6 +177,7 @@ async def create_agent_run(
                     id=qid,
                     original_query=original_query,
                     workspace_slug=workspace_slug,
+                    conversation_title=conversation_title,
                     is_archived=False,
                 ))
                 await session.flush()
@@ -181,12 +186,19 @@ async def create_agent_run(
             session.add(AgentRun(
                 id=rid,
                 query_id=qid,
+                turn_index=int(turn_index or 0),
+                parent_run_id=_to_uuid(parent_run_id) if parent_run_id else None,
                 original_query=original_query,
                 status=AgentRunStatus.running,
                 langfuse_trace_id=run_id,
                 started_at=datetime.now(UTC),
             ))
-            await session.commit()
+        if db_session is None:
+            async with async_session_factory() as session:
+                await _create(session)
+                await session.commit()
+        else:
+            await _create(db_session)
 
         if settings.langfuse_enabled:
             asyncio.create_task(_langfuse_create_trace(run_id, original_query))
@@ -214,6 +226,7 @@ async def complete_agent_run(
     model_summary: dict | None = None,
     token_usage: dict | None = None,
     langfuse_trace_id: str | None = None,
+    display_workspace_slug: str | None = None,
 ) -> None:
     """Update agent_runs to terminal state. Never throws."""
     try:
@@ -254,8 +267,22 @@ async def complete_agent_run(
                 query.confidence_score = confidence_score
                 query.refused = refused
                 query.refusal_reason = refusal_reason
+                if display_workspace_slug:
+                    query.workspace_slug = display_workspace_slug
 
             await session.commit()
+
+        if status in {AgentRunStatus.succeeded.value, AgentRunStatus.refused.value} and error_message != "cancelled_by_user":
+            try:
+                from src.agent.conversation import refresh_context_summary
+
+                await refresh_context_summary(agent_run.query_id)
+            except Exception as summary_exc:
+                await logger.awarning(
+                    "refresh_context_summary_failed",
+                    error=str(summary_exc),
+                    run_id=str(run_id),
+                )
 
         if settings.langfuse_enabled:
             asyncio.create_task(_langfuse_complete_trace(str(run_id), status))

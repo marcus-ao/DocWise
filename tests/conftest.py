@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator, Callable
+import shutil
+import tempfile
+from collections.abc import AsyncGenerator, Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,18 @@ from src.config.settings import settings
 
 MOCK_DIR = Path(__file__).resolve().parent.parent / "data" / "mock"
 EVAL_DIR = Path(__file__).resolve().parent.parent / "data" / "eval"
+
+
+@pytest.fixture
+def tmp_path() -> Iterator[Path]:
+    """Provide a repo-local temp directory to avoid Windows global temp permission issues."""
+    root = Path(__file__).resolve().parent.parent / ".tmp" / "pytest"
+    root.mkdir(parents=True, exist_ok=True)
+    path = Path(tempfile.mkdtemp(prefix="case-", dir=root))
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest_asyncio.fixture
@@ -84,8 +98,13 @@ def sample_agent_state() -> dict:
         "route_confidence": 0.92,
         "workspace_policy": "selected_project_plus_public",
         "workspace_ids": ["project_airflow", "public_tech"],
-        "selected_project": "data-platform",
-        "selected_workspace_name": "Airflow Data Platform",
+        "selected_project": "project_airflow",
+        "selected_workspace_slug": "project_airflow",
+        "display_workspace_slug": "project_airflow",
+        "effective_workspace_slugs": ["project_airflow", "public_tech"],
+        "scope_reason_code": "auto_project_matched",
+        "scope_reason_params": {"project_slug": "project_airflow"},
+        "workspace_alias_hits": ["project_airflow"],
         "key_entities": ["airflow", "task"],
         "retrieved_chunks": [],
         "reranked_chunks": [

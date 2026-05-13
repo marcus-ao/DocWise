@@ -133,7 +133,7 @@ docker compose up -d postgres redis minio
 当前恢复基线的 head 为：
 
 ```text
-004 (head)
+006 (head)
 ```
 
 初始化 demo：
@@ -182,7 +182,7 @@ $env:TEMP=$env:TMP
 validate_mock_data: ALL CHECKS PASSED
 validate_eval_cases: ALL CHECKS PASSED (20 retrieval + 30 qa)
 ruff: All checks passed!
-pytest: 121 passed
+pytest: 174 passed
 ```
 
 如果 pytest 只出现 `AsyncMock ... was never awaited` warning，但结果为 passed，目前不影响功能验收。
@@ -413,6 +413,12 @@ curl.exe -H "Authorization: Bearer <ADMIN_API_TOKEN>" "http://127.0.0.1:8000/api
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\smoke_api.ps1
+```
+
+Phase A 多轮 smoke：
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.smoke_multi_turn --base-url http://127.0.0.1:8000
 ```
 
 Next.js 前端：

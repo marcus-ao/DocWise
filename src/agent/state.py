@@ -31,6 +31,12 @@ class AgentState(TypedDict):
     # Input
     original_query: str
     rewritten_query: str
+    effective_query: str
+    conversation_id: str
+    turn_index: int
+    parent_run_id: str | None
+    recent_turns: list[dict]
+    context_summary: str | None
 
     # Routing
     route: Literal[
@@ -43,13 +49,17 @@ class AgentState(TypedDict):
     route_confidence: float
     workspace_policy: Literal[
         "public_only",
-        "selected_project_only",
         "selected_project_plus_public",
         "none",
     ]
     workspace_ids: list[str]
     selected_project: str | None
-    selected_workspace_name: str | None
+    selected_workspace_slug: str | None
+    display_workspace_slug: str | None
+    effective_workspace_slugs: list[str]
+    scope_reason_code: str | None
+    scope_reason_params: dict | None
+    workspace_alias_hits: list[str]
     key_entities: list[str]
 
     # Retrieval
@@ -65,6 +75,8 @@ class AgentState(TypedDict):
     tool_results: list[dict]
     latest_tool_results: list[dict]  # latest round only, for SSE streaming
     tool_loop_count: int
+    working_context_preview: dict | None
+    working_context_diagnostics: dict | None
 
     # Generation
     answer: str
@@ -184,12 +196,23 @@ def create_initial_state(original_query: str, trace_id: str = "") -> AgentState:
     return AgentState(
         original_query=original_query,
         rewritten_query="",
+        effective_query="",
+        conversation_id="",
+        turn_index=0,
+        parent_run_id=None,
+        recent_turns=[],
+        context_summary=None,
         route="tech_general",
         route_confidence=0.0,
         workspace_policy="public_only",
         workspace_ids=[],
         selected_project=None,
-        selected_workspace_name=None,
+        selected_workspace_slug=None,
+        display_workspace_slug=None,
+        effective_workspace_slugs=[],
+        scope_reason_code=None,
+        scope_reason_params=None,
+        workspace_alias_hits=[],
         key_entities=[],
         retrieved_chunks=[],
         reranked_chunks=[],
@@ -199,6 +222,8 @@ def create_initial_state(original_query: str, trace_id: str = "") -> AgentState:
         tool_results=[],
         latest_tool_results=[],
         tool_loop_count=0,
+        working_context_preview=None,
+        working_context_diagnostics=None,
         answer="",
         citations=[],
         confidence_score=0.0,

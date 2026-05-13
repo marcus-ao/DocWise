@@ -360,21 +360,37 @@ async def test_ingest_path_respects_enqueue_sync_and_existing_modes(monkeypatch,
         ingested_jobs.append((document_id, job_id))
         return {"status": "ready"}
 
-    monkeypatch.setattr(ingest_docs, "Minio", lambda *args, **kwargs: object())
-    monkeypatch.setattr(ingest_docs, "get_redis_client", lambda: FakeRedis())
     monkeypatch.setattr(ingest_docs, "async_session_factory", lambda: FakeSessionContext())
     monkeypatch.setattr(ingest_docs, "submit_document_for_ingestion", fake_submit_document_for_ingestion)
     monkeypatch.setattr(ingest_docs, "ingest_document_by_id", fake_ingest_document_by_id)
 
-    sync_result = await ingest_docs.ingest_path(path, "public_tech", enqueue=False)
-    enqueue_result = await ingest_docs.ingest_path(path, "public_tech", enqueue=True)
+    sync_result = await ingest_docs.ingest_path(
+        path,
+        "public_tech",
+        enqueue=False,
+        minio_client=object(),
+        redis=FakeRedis(),
+    )
+    enqueue_result = await ingest_docs.ingest_path(
+        path,
+        "public_tech",
+        enqueue=True,
+        minio_client=object(),
+        redis=FakeRedis(),
+    )
 
     async def fake_existing_submit_document_for_ingestion(**kwargs):
         submitted_enqueue_flags.append(kwargs["enqueue"])
         return {"document_id": "doc-1", "job_id": "job-1", "status": "ready", "existing": True}
 
     monkeypatch.setattr(ingest_docs, "submit_document_for_ingestion", fake_existing_submit_document_for_ingestion)
-    existing_result = await ingest_docs.ingest_path(path, "public_tech", enqueue=False)
+    existing_result = await ingest_docs.ingest_path(
+        path,
+        "public_tech",
+        enqueue=False,
+        minio_client=object(),
+        redis=FakeRedis(),
+    )
 
     assert submitted_enqueue_flags == [False, True, False]
     assert ingested_jobs == [("doc-1", "job-1")]

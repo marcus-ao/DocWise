@@ -13,6 +13,36 @@ from src.retrieval.metadata_filter import detect_query_language
 logger = structlog.get_logger(__name__)
 
 
+def _ts_config_for_query(query: str) -> str:
+    lang = detect_query_language(query)
+    # Stock PostgreSQL reliably ships `english` and `simple`, but not a
+    # `chinese` text-search config. Use `simple` for zh/mixed queries so
+    # keyword retrieval degrades to exact token matching instead of erroring.
+    return "english" if lang == "en" else "simple"
+
+
+async def _ensure_content_tsv_populated(session: AsyncSession, workspace_ids: list[UUID]) -> None:
+    if not workspace_ids:
+        return
+
+    sql = text("""
+        UPDATE document_chunks
+        SET content_tsv = to_tsvector(
+            CASE
+                WHEN language = 'en' THEN 'english'::regconfig
+                ELSE 'simple'::regconfig
+            END,
+            coalesce(content, '')
+        )
+        WHERE workspace_id IN :workspace_ids
+          AND is_active = true
+          AND content_tsv IS NULL
+    """).bindparams(bindparam("workspace_ids", expanding=True))
+    result = await session.execute(sql, {"workspace_ids": workspace_ids})
+    if result.rowcount:
+        logger.info("keyword_search_backfilled_content_tsv", updated_rows=int(result.rowcount))
+
+
 async def search(
     session: AsyncSession,
     query: str,
@@ -27,8 +57,8 @@ async def search(
     if not workspace_ids or not query.strip():
         return []
 
-    lang = detect_query_language(query)
-    ts_config = "chinese" if lang == "zh" else "english"
+    await _ensure_content_tsv_populated(session, workspace_ids)
+    ts_config = _ts_config_for_query(query)
     sql = text(f"""
         SELECT
             dc.id            AS chunk_id,

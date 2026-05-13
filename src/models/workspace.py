@@ -20,4 +20,6 @@ class Workspace(TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
-    documents = relationship("Document", back_populates="workspace", lazy="selectin")
+    # Workspace lookups are part of hot routing paths and should not eagerly
+    # hydrate the full document set for each workspace.
+    documents = relationship("Document", back_populates="workspace", lazy="select")

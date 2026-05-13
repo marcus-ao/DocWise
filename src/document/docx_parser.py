@@ -76,6 +76,7 @@ def _parse_docx_sync(file_bytes: bytes, file_name: str, content_type: str) -> Pa
         content_type=content_type,
         parser_name=PARSER_NAME,
         parser_version=PARSER_VERSION,
+        byte_size=len(file_bytes),
         blocks=blocks,
         metadata={"paragraph_count": len(doc.paragraphs), "table_count": len(doc.tables)},
     )

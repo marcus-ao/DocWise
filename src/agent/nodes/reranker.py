@@ -15,14 +15,14 @@ logger = structlog.get_logger(__name__)
 
 async def reranker_node(state: AgentState, config: RunnableConfig | None = None) -> AgentState:
     start = time.perf_counter()
-    query = state["rewritten_query"] or state["original_query"]
+    query = state.get("effective_query") or state["rewritten_query"] or state["original_query"]
     chunks = state["retrieved_chunks"]
 
     if not chunks:
         state["reranked_chunks"] = []
         elapsed = int((time.perf_counter() - start) * 1000)
         await write_trace_event(
-            run_id=state["trace_id"], node_name="reranker", sequence_no=6,
+            run_id=state["trace_id"], node_name="reranker", sequence_no=7,
             status="skipped", input_summary={"input_count": 0},
             output_summary={"output_count": 0, "fallback": False}, latency_ms=elapsed,
         )
@@ -56,9 +56,9 @@ async def reranker_node(state: AgentState, config: RunnableConfig | None = None)
 
     elapsed = int((time.perf_counter() - start) * 1000)
     await write_trace_event(
-        run_id=state["trace_id"], node_name="reranker", sequence_no=6,
+        run_id=state["trace_id"], node_name="reranker", sequence_no=7,
         status="success",
-        input_summary={"input_count": len(chunks), "model": "qwen3-rerank"},
+        input_summary={"input_count": len(chunks), "model": "qwen3-rerank", "effective_query": query[:200]},
         output_summary={
             "output_count": len(reranked),
             "fallback": fallback_used,

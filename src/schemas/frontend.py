@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -119,6 +120,23 @@ class EvalBadCaseListResponse(BaseModel):
     total: int
 
 
+class LabHistoryTurn(BaseModel):
+    query: str
+    answer: str
+    tool_facts: list[str] = Field(default_factory=list)
+
+
+class LabRewriterInfo(BaseModel):
+    used: bool
+    route: str
+    original_query: str
+    rewritten_query: str
+    effective_query: str
+    fallback_reason: str
+    missing_entities: list[str] = Field(default_factory=list)
+    diagnostic_hint: str | None = None
+
+
 class LabCompareRequest(BaseModel):
     query: str
     workspace_ids: list[str] = Field(default_factory=lambda: ["public_tech"])
@@ -126,6 +144,10 @@ class LabCompareRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20)
     rrf_k: int = Field(default=60, ge=1, le=500)
     rerank_top_k: int | None = Field(default=None, ge=1, le=20)
+    use_rewriter: bool = True
+    route_override: Literal["tech_general", "project_specific", "troubleshooting", "runbook_generation"] | None = None
+    recent_turns: list[LabHistoryTurn] | None = None
+    context_summary: str | None = None
 
 
 class LabChunkResult(BaseModel):
@@ -145,6 +167,7 @@ class LabCompareResponse(BaseModel):
     timing_ms: dict[str, int]
     degraded: bool = False
     errors: dict[str, str] = Field(default_factory=dict)
+    rewriter: LabRewriterInfo
 
 
 class WorkspaceItem(BaseModel):

@@ -23,15 +23,15 @@ logger = structlog.get_logger(__name__)
 
 async def hybrid_retriever(state: AgentState, config: RunnableConfig | None = None) -> AgentState:
     start = time.perf_counter()
-    query = state["rewritten_query"] or state["original_query"]
+    query = state.get("effective_query") or state["rewritten_query"] or state["original_query"]
     ws_ids = state["workspace_ids"]
 
     if not ws_ids:
         state["retrieved_chunks"] = []
         elapsed = int((time.perf_counter() - start) * 1000)
         await write_trace_event(
-            run_id=state["trace_id"], node_name="hybrid_retriever", sequence_no=5,
-            status="skipped", input_summary={"query": query[:200], "workspace_ids": ws_ids},
+            run_id=state["trace_id"], node_name="hybrid_retriever", sequence_no=6,
+            status="skipped", input_summary={"query": query[:200], "effective_query": query[:200], "workspace_ids": ws_ids},
             output_summary={"candidate_count": 0}, latency_ms=elapsed,
         )
         return state
@@ -97,10 +97,12 @@ async def hybrid_retriever(state: AgentState, config: RunnableConfig | None = No
 
     elapsed = int((time.perf_counter() - start) * 1000)
     await write_trace_event(
-        run_id=state["trace_id"], node_name="hybrid_retriever", sequence_no=5,
+        run_id=state["trace_id"], node_name="hybrid_retriever", sequence_no=6,
         status="success",
         input_summary={
             "query": query[:200],
+            "effective_query": query[:200],
+            "retrieval_query_source": "effective_query",
             "vector_top_k": RETRIEVAL_VECTOR_TOP_K,
             "keyword_top_k": RETRIEVAL_KEYWORD_TOP_K,
         },

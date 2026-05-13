@@ -19,6 +19,7 @@ def _parsed_document() -> ParsedDocument:
         content_type="text/markdown",
         parser_name="test",
         parser_version="1.0",
+        byte_size=512,
         blocks=[
             ParsedBlock(
                 text="Airflow Troubleshooting",
@@ -81,6 +82,7 @@ def test_chunk_document_splits_large_blocks_with_overlap_without_tail_duplicate(
         content_type="text/markdown",
         parser_name="test",
         parser_version="1.0",
+        byte_size=256,
         blocks=[
             ParsedBlock(
                 text=" ".join(words),

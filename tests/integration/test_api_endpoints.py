@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -61,6 +62,18 @@ async def fake_auth() -> None:
 
 def _sse_events(body: str) -> list[str]:
     return [line.removeprefix("event: ") for line in body.splitlines() if line.startswith("event: ")]
+
+
+def _sse_payloads(body: str, event_name: str) -> list[dict]:
+    payloads: list[dict] = []
+    current_event = ""
+    for line in body.splitlines():
+        if line.startswith("event: "):
+            current_event = line.removeprefix("event: ").strip()
+            continue
+        if current_event == event_name and line.startswith("data: "):
+            payloads.append(json.loads(line.removeprefix("data: ")))
+    return payloads
 
 
 def test_persisted_final_citations_preserve_rich_fields() -> None:
@@ -380,14 +393,18 @@ async def test_reindex_document_reenqueues_stale_active_job(monkeypatch: pytest.
 
 
 class FakeDeleteSession:
-    def __init__(self, document: Document, rowcounts: list[int]) -> None:
+    def __init__(self, document: Document, rowcounts: list[int], shared_reference_count: int = 0) -> None:
         self.document = document
         self.rowcounts = rowcounts
+        self.shared_reference_count = shared_reference_count
         self.execute_count = 0
         self.commit_count = 0
 
     async def get(self, model: object, key: object) -> object:
         return self.document
+
+    async def scalar(self, stmt: object) -> object:
+        return self.shared_reference_count
 
     async def execute(self, stmt: object) -> object:
         rowcount = self.rowcounts[self.execute_count]
@@ -443,18 +460,46 @@ async def test_purge_document_removes_database_rows_and_storage_object() -> None
 
 
 @pytest.mark.asyncio
+async def test_purge_document_keeps_shared_storage_object() -> None:
+    document_id = uuid4()
+    session = FakeDeleteSession(make_document(document_id), [1, 1, 1, 1], shared_reference_count=2)
+
+    class FakeMinio:
+        def __init__(self) -> None:
+            self.removed: list[tuple[str, str]] = []
+
+        def remove_object(self, bucket: str, key: str) -> None:
+            self.removed.append((bucket, key))
+
+    minio = FakeMinio()
+
+    response = await documents.purge_document(session, minio, document_id, None)
+
+    assert response.record_deleted is True
+    assert response.storage_object_deleted is None
+    assert response.warning is not None
+    assert "still reference" in response.warning
+    assert minio.removed == []
+    assert session.execute_count == 4
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
 async def test_map_langgraph_events_matches_sse_contract() -> None:
     route = await chat.map_langgraph_event_to_sse(
         {
             "event": "on_chain_end",
-            "name": "query_router",
+            "name": "scope_selector",
             "data": {
                 "output": {
                     "route": "troubleshooting",
                     "route_confidence": 0.92,
                     "workspace_policy": "selected_project_plus_public",
                     "workspace_ids": ["workspace-1"],
-                    "selected_project": "data-platform",
+                    "selected_project": "project_airflow",
+                    "effective_workspace_slugs": ["project_airflow", "public_tech", "mock_ops"],
+                    "scope_reason_code": "auto_project_matched",
+                    "scope_reason_params": {"project_slug": "project_airflow"},
                 }
             },
         }
@@ -462,6 +507,7 @@ async def test_map_langgraph_events_matches_sse_contract() -> None:
     assert route is not None
     assert route.startswith("event: route\n")
     assert '"workspace_policy": "selected_project_plus_public"' in route
+    assert '"effective_workspace_slugs": ["project_airflow", "public_tech", "mock_ops"]' in route
 
     token = await chat.map_langgraph_event_to_sse(
         {"event": "on_chat_model_stream", "name": "answer_generator", "data": {"chunk": {"content": "鏍规嵁"}}}
@@ -533,7 +579,18 @@ async def test_chat_stream_returns_ordered_sse_chain(client: AsyncClient, monkey
             }
 
     monkeypatch.setattr(chat, "build_agent_graph", lambda: FakeGraph())
-    monkeypatch.setattr(chat, "create_agent_run", AsyncMock(return_value=str(uuid4())))
+    monkeypatch.setattr(
+        chat,
+        "prepare_stream_conversation_run",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                conversation_id=uuid4(),
+                run_id=str(uuid4()),
+                turn_index=0,
+                parent_run_id=None,
+            )
+        ),
+    )
     monkeypatch.setattr(chat, "complete_agent_run", AsyncMock(return_value=None))
     response = await client.post("/api/v1/chat/stream", json={"query": "test", "workspace_slug": "public_tech"})
     body = response.text
@@ -541,6 +598,106 @@ async def test_chat_stream_returns_ordered_sse_chain(client: AsyncClient, monkey
     events = _sse_events(body)
     assert events == ["run", "route", "done"]
     assert '"query_id"' in body
+    assert '"turn_index": 0' in body
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_reuses_conversation_and_links_parent_runs(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conversation_id = uuid4()
+    first_run_id = str(uuid4())
+    second_run_id = str(uuid4())
+    second_parent = uuid4()
+
+    class FakeGraph:
+        async def astream_events(self, state: dict, version: str, config: dict) -> AsyncIterator[dict]:
+            yield {
+                "event": "on_chain_end",
+                "name": "context_loader",
+                "data": {"output": {**state, "recent_turns": ([{"turn_index": 0}] if state.get("turn_index") else [])}},
+            }
+            yield {
+                "event": "on_chain_end",
+                "name": "query_router",
+                "data": {"output": {**state, "route": "troubleshooting", "workspace_policy": "selected_project_plus_public"}},
+            }
+            yield {
+                "event": "on_chain_end",
+                "name": "scope_selector",
+                "data": {
+                    "output": {
+                        **state,
+                        "route": "troubleshooting",
+                        "workspace_policy": "selected_project_plus_public",
+                        "workspace_ids": ["workspace-project", "workspace-public", "workspace-mock"],
+                        "effective_workspace_slugs": ["project_airflow", "public_tech", "mock_ops"],
+                        "scope_reason_code": "inherited_from_turn" if state.get("turn_index") else "auto_project_matched",
+                        "scope_reason_params": {"project_slug": "project_airflow"},
+                    }
+                },
+            }
+            yield {
+                "event": "on_chain_end",
+                "name": "query_rewriter",
+                "data": {
+                    "output": {
+                        **state,
+                        "rewritten_query": state.get("original_query"),
+                        "effective_query": state.get("original_query"),
+                    }
+                },
+            }
+
+    monkeypatch.setattr(chat, "build_agent_graph", lambda: FakeGraph())
+    monkeypatch.setattr(
+        chat,
+        "prepare_stream_conversation_run",
+        AsyncMock(
+            side_effect=[
+                SimpleNamespace(
+                    conversation_id=conversation_id,
+                    run_id=first_run_id,
+                    turn_index=0,
+                    parent_run_id=None,
+                ),
+                SimpleNamespace(
+                    conversation_id=conversation_id,
+                    run_id=second_run_id,
+                    turn_index=1,
+                    parent_run_id=second_parent,
+                ),
+            ]
+        ),
+    )
+    monkeypatch.setattr(chat, "complete_agent_run", AsyncMock(return_value=None))
+
+    first = await client.post("/api/v1/chat/stream", json={"query": "Airflow scheduler 卡住了，怎么办？"})
+    second = await client.post(
+        "/api/v1/chat/stream",
+        json={"query": "那 task 超时呢？", "conversation_id": str(conversation_id)},
+    )
+
+    first_run = _sse_payloads(first.text, "run")[0]
+    second_run = _sse_payloads(second.text, "run")[0]
+    second_reasoning = _sse_payloads(second.text, "reasoning")
+    second_route = _sse_payloads(second.text, "route")[0]
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert _sse_events(first.text) == ["run", "reasoning", "reasoning", "reasoning", "route", "reasoning", "done"]
+    assert _sse_events(second.text) == ["run", "reasoning", "reasoning", "reasoning", "route", "reasoning", "done"]
+    assert first_run["conversation_id"] == str(conversation_id)
+    assert first_run["turn_index"] == 0
+    assert first_run["parent_run_id"] is None
+    assert second_run["conversation_id"] == str(conversation_id)
+    assert second_run["turn_index"] == 1
+    assert second_run["parent_run_id"] == str(second_parent)
+    assert any(
+        payload.get("node") == "context_loader" and payload.get("reason") == "加载 1 轮历史上下文"
+        for payload in second_reasoning
+    )
+    assert second_route["scope_reason_code"] == "inherited_from_turn"
 
 
 @pytest.mark.asyncio
@@ -553,6 +710,21 @@ async def test_real_app_chat_stream_emits_full_sse_chain(monkeypatch: pytest.Mon
                 "event": "on_chain_end",
                 "name": "query_router",
                 "data": {"output": {**state, "route": "tech_general", "workspace_policy": "public_only"}},
+            }
+            yield {
+                "event": "on_chain_end",
+                "name": "scope_selector",
+                "data": {
+                    "output": {
+                        **state,
+                        "route": "tech_general",
+                        "workspace_policy": "public_only",
+                        "workspace_ids": ["workspace-public"],
+                        "effective_workspace_slugs": ["public_tech"],
+                        "scope_reason_code": "auto_route_default",
+                        "scope_reason_params": {"route": "tech_general"},
+                    }
+                },
             }
             yield {
                 "event": "on_chain_end",
@@ -608,7 +780,18 @@ async def test_real_app_chat_stream_emits_full_sse_chain(monkeypatch: pytest.Mon
             }
 
     monkeypatch.setattr(chat, "build_agent_graph", lambda: FakeGraph())
-    monkeypatch.setattr(chat, "create_agent_run", AsyncMock(return_value=str(uuid4())))
+    monkeypatch.setattr(
+        chat,
+        "prepare_stream_conversation_run",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                conversation_id=uuid4(),
+                run_id=str(uuid4()),
+                turn_index=0,
+                parent_run_id=None,
+            )
+        ),
+    )
     monkeypatch.setattr(chat, "complete_agent_run", AsyncMock(return_value=None))
 
     transport = ASGITransport(app=real_app)
@@ -618,6 +801,7 @@ async def test_real_app_chat_stream_emits_full_sse_chain(monkeypatch: pytest.Mon
     assert response.status_code == 200
     assert _sse_events(response.text) == [
         "run",
+        "reasoning",
         "reasoning",
         "route",
         "reasoning",
@@ -642,7 +826,18 @@ async def test_chat_stream_emits_heartbeat(client: AsyncClient, monkeypatch: pyt
             yield {"event": "heartbeat", "name": "heartbeat", "data": {}}
 
     monkeypatch.setattr(chat, "build_agent_graph", lambda: FakeGraph())
-    monkeypatch.setattr(chat, "create_agent_run", AsyncMock(return_value=str(uuid4())))
+    monkeypatch.setattr(
+        chat,
+        "prepare_stream_conversation_run",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                conversation_id=uuid4(),
+                run_id=str(uuid4()),
+                turn_index=0,
+                parent_run_id=None,
+            )
+        ),
+    )
     monkeypatch.setattr(chat, "complete_agent_run", AsyncMock(return_value=None))
     response = await client.post("/api/v1/chat/stream", json={"query": "test"})
     assert 'event: token\ndata: {"content": ""}\n\n' in response.text
@@ -656,10 +851,55 @@ async def test_chat_stream_error_type_timeout(client: AsyncClient, monkeypatch: 
             yield {}
 
     monkeypatch.setattr(chat, "build_agent_graph", lambda: FakeGraph())
-    monkeypatch.setattr(chat, "create_agent_run", AsyncMock(return_value=str(uuid4())))
+    monkeypatch.setattr(
+        chat,
+        "prepare_stream_conversation_run",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                conversation_id=uuid4(),
+                run_id=str(uuid4()),
+                turn_index=0,
+                parent_run_id=None,
+            )
+        ),
+    )
     monkeypatch.setattr(chat, "complete_agent_run", AsyncMock(return_value=None))
     response = await client.post("/api/v1/chat/stream", json={"query": "test"})
     assert '"error_type": "timeout"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_chat_nonstream_ignores_conversation_id(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+    provided_conversation_id = str(uuid4())
+
+    async def fake_run_agent(original_query: str, query_id: str | None = None, workspace_slug: str | None = None) -> dict:
+        captured["original_query"] = original_query
+        captured["query_id"] = query_id
+        captured["workspace_slug"] = workspace_slug
+        return {
+            "trace_id": str(uuid4()),
+            "route": "tech_general",
+            "route_confidence": 0.5,
+            "workspace_ids": [],
+            "answer": "ok",
+            "citations": [],
+            "confidence_score": 0.7,
+            "refused": False,
+            "refusal_reason": None,
+        }
+
+    monkeypatch.setattr(chat, "run_agent", fake_run_agent)
+    monkeypatch.setattr(chat, "_tool_calls_for_run", AsyncMock(return_value=[]))
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={"query": "test", "conversation_id": provided_conversation_id},
+    )
+
+    assert response.status_code == 200
+    assert captured["original_query"] == "test"
+    assert str(captured["query_id"]) != provided_conversation_id
 
 
 @pytest.mark.asyncio

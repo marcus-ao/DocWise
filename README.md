@@ -83,6 +83,12 @@ curl.exe http://127.0.0.1:8000/readyz
 powershell -ExecutionPolicy Bypass -File .\scripts\smoke_api.ps1
 ```
 
+运行 Phase A 多轮 smoke：
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.smoke_multi_turn --base-url http://127.0.0.1:8000
+```
+
 ## 质量门
 
 Windows 上如果系统临时目录有权限问题，先使用仓库内临时目录：
@@ -108,13 +114,13 @@ $env:TEMP=$env:TMP
 validate_mock_data: ALL CHECKS PASSED
 validate_eval_cases: ALL CHECKS PASSED (20 retrieval + 30 qa)
 ruff: All checks passed!
-pytest: 121 passed
+pytest: 174 passed
 ```
 
 ## 当前已验证状态
 
 - Docker `postgres`、`redis`、`minio` healthy。
-- Alembic 当前版本为 `004 (head)`。
+- Alembic 当前版本为 `006 (head)`（M2 多轮字段：`agent_runs.turn_index/parent_run_id` + `queries.context_summary`）。
 - `scripts.seed_demo` 可创建/确认 MinIO bucket、workspace、demo docs、mock/eval 数据。
 - `scripts.ingest_docs --workspace public_tech --dir data\raw\airflow` 可将两份 Airflow demo 文档处理到 `ready`。
 - `--enqueue` 对已有文档可返回 succeeded job。

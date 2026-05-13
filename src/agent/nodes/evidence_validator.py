@@ -23,7 +23,7 @@ async def evidence_validator(state: AgentState, config: RunnableConfig | None = 
     await write_trace_event(
         run_id=state["trace_id"],
         node_name="evidence_validator",
-        sequence_no=7,
+        sequence_no=8,
         status="success",
         input_summary={"chunk_count": len(chunks)},
         output_summary={"evidence_sufficient": state["evidence_sufficient"], "reason": reason},

@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+.pytest_tmp/
 *.py[cod]
 *$py.class
 *.egg-info/
@@ -25,6 +26,8 @@ env/
 .env.production
 
 # OS
+%USERPROFILE%/
+.sisyphus/
 .DS_Store
 Thumbs.db
 

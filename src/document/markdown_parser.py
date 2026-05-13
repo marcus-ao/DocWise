@@ -4,10 +4,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import yaml
+
 from src.document.parser import ParsedBlock, ParsedDocument
 
 PARSER_NAME = "markdown_parser"
 PARSER_VERSION = "1.0"
+FRONTMATTER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 
 
 def _anchor(text: str) -> str:
@@ -15,10 +18,32 @@ def _anchor(text: str) -> str:
     return value or "section"
 
 
+def extract_frontmatter(text: str) -> tuple[dict, str]:
+    match = FRONTMATTER_RE.match(text)
+    if not match:
+        return {}, text
+    try:
+        frontmatter = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError:
+        return {}, text
+    if not isinstance(frontmatter, dict):
+        return {}, text[match.end() :]
+    return frontmatter, text[match.end() :]
+
+
+def compute_section_path_fallback(relative_path: Path) -> str:
+    stem = relative_path.stem
+    parent_name = relative_path.parent.name if relative_path.parent.name else ""
+    if parent_name:
+        return f"{parent_name} > {stem}"
+    return stem
+
+
 def _flush_paragraph(
     lines: list[str],
     blocks: list[ParsedBlock],
     section_stack: list[str],
+    fallback_section_path: str,
     source_anchor: str | None,
     cursor: int,
 ) -> int:
@@ -32,7 +57,7 @@ def _flush_paragraph(
             ParsedBlock(
                 text=text,
                 block_type="paragraph",
-                section_path=" > ".join(section_stack) or None,
+                section_path=" > ".join(section_stack) or fallback_section_path,
                 source_anchor=source_anchor,
                 start_char=start_char,
                 end_char=end_char,
@@ -44,8 +69,14 @@ def _flush_paragraph(
 
 
 async def parse_markdown(file_bytes: bytes, file_name: str, content_type: str = "text/markdown") -> ParsedDocument:
-    text = file_bytes.decode("utf-8", errors="replace")
-    title = Path(file_name).stem.replace("-", " ").replace("_", " ").strip() or file_name
+    raw_text = file_bytes.decode("utf-8", errors="replace")
+    frontmatter, text = extract_frontmatter(raw_text)
+    path = Path(file_name)
+    title = path.stem.replace("-", " ").replace("_", " ").strip() or file_name
+    frontmatter_title = frontmatter.get("title")
+    if isinstance(frontmatter_title, str) and frontmatter_title.strip():
+        title = frontmatter_title.strip()
+    fallback_section_path = compute_section_path_fallback(path)
     blocks: list[ParsedBlock] = []
     section_stack: list[str] = []
     paragraph_lines: list[str] = []
@@ -57,7 +88,7 @@ async def parse_markdown(file_bytes: bytes, file_name: str, content_type: str = 
     for raw_line in text.splitlines():
         line = raw_line.rstrip()
         if line.strip().startswith("```"):
-            cursor = _flush_paragraph(paragraph_lines, blocks, section_stack, current_anchor, cursor)
+            cursor = _flush_paragraph(paragraph_lines, blocks, section_stack, fallback_section_path, current_anchor, cursor)
             if in_code:
                 code_text = "\n".join(code_lines).strip("\n")
                 if code_text:
@@ -67,7 +98,7 @@ async def parse_markdown(file_bytes: bytes, file_name: str, content_type: str = 
                         ParsedBlock(
                             text=code_text,
                             block_type="code",
-                            section_path=" > ".join(section_stack) or None,
+                            section_path=" > ".join(section_stack) or fallback_section_path,
                             source_anchor=current_anchor,
                             contains_code=True,
                             start_char=start_char,
@@ -87,7 +118,7 @@ async def parse_markdown(file_bytes: bytes, file_name: str, content_type: str = 
 
         heading = re.match(r"^(#{1,6})\s+(.+)$", line)
         if heading:
-            cursor = _flush_paragraph(paragraph_lines, blocks, section_stack, current_anchor, cursor)
+            cursor = _flush_paragraph(paragraph_lines, blocks, section_stack, fallback_section_path, current_anchor, cursor)
             level = len(heading.group(1))
             heading_text = heading.group(2).strip()
             section_stack = section_stack[: level - 1]
@@ -105,12 +136,12 @@ async def parse_markdown(file_bytes: bytes, file_name: str, content_type: str = 
             continue
 
         if not line.strip():
-            cursor = _flush_paragraph(paragraph_lines, blocks, section_stack, current_anchor, cursor)
+            cursor = _flush_paragraph(paragraph_lines, blocks, section_stack, fallback_section_path, current_anchor, cursor)
             continue
 
         paragraph_lines.append(line)
 
-    _flush_paragraph(paragraph_lines, blocks, section_stack, current_anchor, cursor)
+    _flush_paragraph(paragraph_lines, blocks, section_stack, fallback_section_path, current_anchor, cursor)
 
     return ParsedDocument(
         title=title,
@@ -118,6 +149,10 @@ async def parse_markdown(file_bytes: bytes, file_name: str, content_type: str = 
         content_type=content_type,
         parser_name=PARSER_NAME,
         parser_version=PARSER_VERSION,
+        byte_size=len(file_bytes),
         blocks=blocks,
-        metadata={"line_count": len(text.splitlines())},
+        metadata={
+            "line_count": len(raw_text.splitlines()),
+            "frontmatter": frontmatter or None,
+        },
     )

@@ -14,17 +14,53 @@ import pytest
 
 from src.agent.graph import build_agent_graph
 from src.agent.state import RetryBudget, create_initial_state
+from src.models.base import WorkspaceType
 
 
-def _mock_workspace(ws_id: str, name: str, project_name: str | None = None, slug: str = ""):
+def _mock_workspace(
+    ws_id: str,
+    name: str,
+    *,
+    workspace_type: WorkspaceType,
+    project_name: str | None = None,
+    slug: str = "",
+):
     """Create a mock Workspace ORM object."""
     ws = MagicMock()
     ws.id = ws_id
     ws.name = name
     ws.project_name = project_name
     ws.slug = slug or name
+    ws.workspace_type = workspace_type
     ws.is_active = True
     return ws
+
+
+class _Rows:
+    def __init__(self, items: list[object]) -> None:
+        self._items = items
+
+    def all(self) -> list[object]:
+        return list(self._items)
+
+
+class _ScopeSession:
+    def __init__(self, workspaces: list[object]) -> None:
+        self._workspaces = workspaces
+
+    async def scalars(self, stmt: object) -> _Rows:
+        return _Rows(self._workspaces)
+
+
+class _ScopeSessionContext:
+    def __init__(self, workspaces: list[object]) -> None:
+        self._session = _ScopeSession(workspaces)
+
+    async def __aenter__(self) -> _ScopeSession:
+        return self._session
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        return False
 
 
 def _mock_chunks(n: int = 3) -> list[dict]:
@@ -75,16 +111,34 @@ class TestTroubleshootingFullPipeline:
             c["final_rank"] = i + 1
 
         # scope_selector helpers
-        project_ws = _mock_workspace("ws-1", "data-platform", project_name="data-platform")
-        public_ws = _mock_workspace("ws-pub", "public-tech")
-        mock_resolve_project = AsyncMock(return_value=project_ws)
-        mock_get_ws_type = AsyncMock(return_value=public_ws)
+        scope_workspaces = [
+            _mock_workspace(
+                "ws-1",
+                "Airflow Workspace",
+                workspace_type=WorkspaceType.project_pack,
+                project_name="data-platform",
+                slug="project_airflow",
+            ),
+            _mock_workspace(
+                "ws-pub",
+                "Public Tech",
+                workspace_type=WorkspaceType.public_tech,
+                slug="public_tech",
+            ),
+            _mock_workspace(
+                "ws-mock",
+                "Mock Ops",
+                workspace_type=WorkspaceType.mock_ops,
+                slug="mock_ops",
+            ),
+        ]
 
         # hybrid_retriever mocks
         mock_session_ctx = AsyncMock()
         mock_session = AsyncMock()
         mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
+        scope_session_ctx = _ScopeSessionContext(scope_workspaces)
 
         mock_embed = AsyncMock(return_value=[0.1] * 2048)
         mock_vector = AsyncMock(return_value=chunks[:2])
@@ -141,10 +195,8 @@ class TestTroubleshootingFullPipeline:
         }
 
         with (
-            patch("src.agent.nodes.scope_selector._resolve_project_workspace", mock_resolve_project),
-            patch("src.agent.nodes.scope_selector._get_workspace_by_type", mock_get_ws_type),
-            patch("src.agent.nodes.scope_selector.async_session_factory", return_value=mock_session_ctx),
-            patch("src.agent.nodes.query_rewriter.chat_completion", new_callable=AsyncMock, return_value=rewriter_resp),
+            patch("src.agent.nodes.scope_selector.async_session_factory", return_value=scope_session_ctx),
+            patch("src.agent.rewriter.runtime.chat_completion", new_callable=AsyncMock, return_value=rewriter_resp),
             patch("src.agent.nodes.hybrid_retriever.async_session_factory", return_value=mock_session_ctx),
             patch("src.agent.nodes.hybrid_retriever.embed_with_cache", mock_embed),
             patch("src.agent.nodes.hybrid_retriever.vector_store.search", mock_vector),
@@ -181,14 +233,19 @@ class TestOutOfScopeRefusal:
         graph = build_agent_graph()
         state = create_initial_state("帮我预测明天股票走势", trace_id="graph-oos-1")
 
-        # scope_selector needs a session even for "none" policy
-        mock_session = AsyncMock()
-        mock_session_ctx = AsyncMock()
-        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
+        scope_session_ctx = _ScopeSessionContext(
+            [
+                _mock_workspace(
+                    "ws-pub",
+                    "Public Tech",
+                    workspace_type=WorkspaceType.public_tech,
+                    slug="public_tech",
+                )
+            ]
+        )
 
         with (
-            patch("src.agent.nodes.scope_selector.async_session_factory", return_value=mock_session_ctx),
+            patch("src.agent.nodes.scope_selector.async_session_factory", return_value=scope_session_ctx),
         ):
             config = {"configurable": {"retry_budget": RetryBudget(3)}}
             result = await graph.ainvoke(state, config=config)
@@ -225,8 +282,16 @@ class TestRetrievalFallback:
         }
 
         # scope_selector
-        public_ws = _mock_workspace("ws-pub", "public-docs")
-        mock_get_ws_type = AsyncMock(return_value=public_ws)
+        scope_session_ctx = _ScopeSessionContext(
+            [
+                _mock_workspace(
+                    "ws-pub",
+                    "Public Tech",
+                    workspace_type=WorkspaceType.public_tech,
+                    slug="public_tech",
+                )
+            ]
+        )
         mock_session_ctx = AsyncMock()
         mock_session = AsyncMock()
         mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
@@ -251,9 +316,8 @@ class TestRetrievalFallback:
 
         with (
             patch("src.agent.nodes.query_router.chat_completion", new_callable=AsyncMock, return_value=router_resp),
-            patch("src.agent.nodes.scope_selector._get_workspace_by_type", mock_get_ws_type),
-            patch("src.agent.nodes.scope_selector.async_session_factory", return_value=mock_session_ctx),
-            patch("src.agent.nodes.query_rewriter.chat_completion", new_callable=AsyncMock, return_value=rewriter_resp),
+            patch("src.agent.nodes.scope_selector.async_session_factory", return_value=scope_session_ctx),
+            patch("src.agent.rewriter.runtime.chat_completion", new_callable=AsyncMock, return_value=rewriter_resp),
             patch("src.agent.nodes.hybrid_retriever.async_session_factory", return_value=mock_session_ctx),
             patch("src.agent.nodes.hybrid_retriever.embed_with_cache", mock_embed),
             patch("src.agent.nodes.hybrid_retriever.keyword_search.search", mock_keyword_fail),
@@ -284,12 +348,27 @@ class TestRerankerFallback:
         graph = build_agent_graph()
         state = create_initial_state("我们项目的 SLA 是多少？", trace_id="graph-rr-1")
 
+        state["selected_workspace_slug"] = "project_airflow"
         chunks = _mock_chunks(4)
 
         # scope_selector
-        project_ws = _mock_workspace("ws-proj", "my-project", project_name="my-project", slug="my-project")
-        mock_resolve_project = AsyncMock(return_value=project_ws)
-        mock_get_ws_type = AsyncMock(return_value=None)
+        scope_session_ctx = _ScopeSessionContext(
+            [
+                _mock_workspace(
+                    "ws-proj",
+                    "Airflow Workspace",
+                    workspace_type=WorkspaceType.project_pack,
+                    project_name="data-platform",
+                    slug="project_airflow",
+                ),
+                _mock_workspace(
+                    "ws-pub",
+                    "Public Tech",
+                    workspace_type=WorkspaceType.public_tech,
+                    slug="public_tech",
+                ),
+            ]
+        )
 
         mock_session_ctx = AsyncMock()
         mock_session = AsyncMock()
@@ -318,10 +397,8 @@ class TestRerankerFallback:
             yield "According to [1], the SLA is 99.9%."
 
         with (
-            patch("src.agent.nodes.scope_selector._resolve_project_workspace", mock_resolve_project),
-            patch("src.agent.nodes.scope_selector._get_workspace_by_type", mock_get_ws_type),
-            patch("src.agent.nodes.scope_selector.async_session_factory", return_value=mock_session_ctx),
-            patch("src.agent.nodes.query_rewriter.chat_completion", new_callable=AsyncMock, return_value=rewriter_resp),
+            patch("src.agent.nodes.scope_selector.async_session_factory", return_value=scope_session_ctx),
+            patch("src.agent.rewriter.runtime.chat_completion", new_callable=AsyncMock, return_value=rewriter_resp),
             patch("src.agent.nodes.hybrid_retriever.async_session_factory", return_value=mock_session_ctx),
             patch("src.agent.nodes.hybrid_retriever.embed_with_cache", mock_embed),
             patch("src.agent.nodes.hybrid_retriever.vector_store.search", mock_vector),

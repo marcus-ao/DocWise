@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
@@ -85,7 +86,7 @@ class TestProjectSpecific:
         state = create_initial_state("我们 Airflow 服务的 SLA 是多少？", trace_id="run-2")
         result = await query_router(state)
         assert result["route"] == "project_specific"
-        assert result["workspace_policy"] == "selected_project_only"
+        assert result["workspace_policy"] == "selected_project_plus_public"
 
 
 # ============================================================
@@ -110,7 +111,7 @@ class TestTroubleshooting:
         state = create_initial_state("Airflow task 一直失败怎么办？", trace_id="run-3")
         state["route"] = "troubleshooting"
         state["key_entities"] = ["airflow-scheduler"]
-        state["selected_project"] = "data-platform"
+        state["selected_project"] = "project_airflow"
         state["rewritten_query"] = state["original_query"]
 
         llm_resp = {
@@ -163,6 +164,63 @@ class TestTroubleshooting:
         assert result["tool_params"]["query_project_manifest"]["service_name"] == "airflow"
         assert result["tool_params"]["query_service_status"]["service_name"] == "airflow"
         assert result["tool_params"]["query_mock_logs"]["service_name"] == "airflow"
+
+    @pytest.mark.asyncio
+    async def test_hybrid_retriever_uses_effective_query(self):
+        from src.agent.nodes.hybrid_retriever import hybrid_retriever
+
+        state = create_initial_state("原始问题", trace_id="run-effective-query")
+        state["workspace_ids"] = ["public_tech"]
+        state["effective_query"] = "effective rewritten query"
+
+        mock_session = AsyncMock()
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
+        seen: dict[str, object] = {}
+
+        async def fake_embed(query: str):
+            seen["embed_query"] = query
+            return [0.1] * 4
+
+        async def fake_vector(_db, _embedding, _workspace_ids, top_k: int):
+            seen["vector_top_k"] = top_k
+            return []
+
+        async def fake_keyword(_db, query: str, _workspace_ids, top_k: int):
+            seen["keyword_query"] = query
+            return []
+
+        with (
+            patch("src.agent.nodes.hybrid_retriever.async_session_factory", return_value=mock_session_ctx),
+            patch("src.agent.nodes.hybrid_retriever.resolve_workspace_ids", AsyncMock(return_value=[uuid4()])),
+            patch("src.agent.nodes.hybrid_retriever.embed_with_cache", fake_embed),
+            patch("src.agent.nodes.hybrid_retriever.vector_store.search", fake_vector),
+            patch("src.agent.nodes.hybrid_retriever.keyword_search.search", fake_keyword),
+        ):
+            await hybrid_retriever(state)
+
+        assert seen["embed_query"] == "effective rewritten query"
+        assert seen["keyword_query"] == "effective rewritten query"
+
+    @pytest.mark.asyncio
+    async def test_reranker_uses_effective_query(self):
+        from src.agent.nodes.reranker import reranker_node
+
+        state = create_initial_state("原始问题", trace_id="run-reranker-effective-query")
+        state["effective_query"] = "effective rerank query"
+        state["retrieved_chunks"] = _mock_chunks(2)
+        seen: dict[str, object] = {}
+
+        async def fake_rerank(query: str, chunks: list[dict], top_k: int):
+            seen["query"] = query
+            seen["top_k"] = top_k
+            return chunks[:top_k], False
+
+        with patch("src.agent.nodes.reranker.reranker.rerank", fake_rerank):
+            await reranker_node(state)
+
+        assert seen["query"] == "effective rerank query"
 
 
 # ============================================================

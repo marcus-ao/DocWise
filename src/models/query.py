@@ -25,6 +25,7 @@ class Query(Base):
     refusal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     conversation_title: Mapped[str | None] = mapped_column(String(256), nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    context_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 

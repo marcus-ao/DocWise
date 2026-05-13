@@ -9,6 +9,7 @@ import structlog
 from langchain_core.runnables import RunnableConfig
 
 from src.agent._tracer_stub import write_trace_event
+from src.agent.context import build_tool_planner_context
 from src.agent.prompts.tool_planner import build_tool_planner_messages
 from src.agent.state import AgentState, NonRetryableError, RetryableError
 from src.llm.client import chat_completion
@@ -25,23 +26,65 @@ _ROUTE_TOOL_CHAINS: dict[str, list[str]] = {
 async def tool_planner(state: AgentState, config: RunnableConfig | None = None) -> AgentState:
     start = time.perf_counter()
     route = state["route"]
-    query = state["rewritten_query"] or state["original_query"]
+    query = state.get("effective_query") or state["rewritten_query"] or state["original_query"]
 
     tools = list(_ROUTE_TOOL_CHAINS.get(route, []))
     state["tools_to_call"] = tools
 
     tool_params: dict[str, dict] = {}
+    context_preview: dict | None = None
+    context_diagnostics: dict | None = None
+    compaction_summary_present = False
+    provider_usage: dict | None = None
     if tools:
         try:
+            model_context = await build_tool_planner_context(
+                state,
+                recent_turns=state.get("recent_turns") or None,
+                context_summary=state.get("context_summary"),
+            )
+            context_preview = model_context.preview
+            context_diagnostics = model_context.diagnostics
+            compaction_summary_present = bool(model_context.compaction_summary)
+            state["working_context_preview"] = context_preview
+            state["working_context_diagnostics"] = context_diagnostics
+            messages = model_context.messages
+        except Exception as exc:  # noqa: BLE001 - explicit legacy fallback for M1 runtime rollout.
+            logger.warning("tool_planner_context_runtime_failed", error=str(exc))
+            context_preview = {
+                "legacy": {
+                    "section_kind": "query",
+                    "item_count": 1,
+                    "total_chars_before": len(query),
+                    "total_chars_after": len(query),
+                    "token_estimate": 0,
+                    "items_preview": [query[:80]],
+                }
+            }
+            context_diagnostics = {
+                "budget": 0,
+                "estimated_prompt_tokens": 0,
+                "sections": context_preview,
+                "truncations": [],
+                "compaction_triggered": False,
+                "compaction_input_tokens": None,
+                "compaction_output_tokens": None,
+                "fallback_used": True,
+                "fallback_reason": f"context_builder_error:{exc.__class__.__name__}",
+            }
+            state["working_context_preview"] = context_preview
+            state["working_context_diagnostics"] = context_diagnostics
             messages = build_tool_planner_messages(
                 query, state["key_entities"], state["selected_project"], tools,
             )
+        try:
             resp = await chat_completion(
                 messages, model="fast", temperature=0,
                 response_format={"type": "json_object"}, timeout=15.0,
             )
             parsed = json.loads(resp["content"])
             tool_params = parsed.get("tool_params", {})
+            provider_usage = resp.get("usage") if isinstance(resp, dict) else None
         except (RetryableError, NonRetryableError, json.JSONDecodeError) as exc:
             logger.warning("tool_planner_llm_failed", error=str(exc))
             tool_params = _default_params(state)
@@ -54,10 +97,21 @@ async def tool_planner(state: AgentState, config: RunnableConfig | None = None) 
 
     elapsed = int((time.perf_counter() - start) * 1000)
     await write_trace_event(
-        run_id=state["trace_id"], node_name="tool_planner", sequence_no=8,
+        run_id=state["trace_id"], node_name="tool_planner", sequence_no=9,
         status="success",
         input_summary={"route": route, "query": query[:200]},
         output_summary={"selected_tools": tools, "tool_params": tool_params},
+        metadata={
+            "context_preview": context_preview or {},
+            "token_breakdown": (context_diagnostics or {}).get("sections", {}),
+            "truncations": (context_diagnostics or {}).get("truncations", []),
+            "compaction_triggered": bool((context_diagnostics or {}).get("compaction_triggered", False)),
+            "compaction_summary_present": compaction_summary_present,
+            "fallback_used": bool((context_diagnostics or {}).get("fallback_used", False)),
+            "fallback_reason": (context_diagnostics or {}).get("fallback_reason"),
+            "estimated_prompt_tokens": (context_diagnostics or {}).get("estimated_prompt_tokens", 0),
+            "provider_usage": provider_usage or {},
+        },
         latency_ms=elapsed,
     )
     return state
@@ -134,8 +188,9 @@ def _derive_service_name(state: AgentState) -> str | None:
     text_parts = [
         state.get("original_query", ""),
         state.get("rewritten_query", ""),
+        state.get("effective_query", ""),
         state.get("selected_project") or "",
-        state.get("selected_workspace_name") or "",
+        state.get("selected_workspace_slug") or "",
         " ".join(str(entity) for entity in state.get("key_entities", [])),
     ]
     text = _normalize_text(" ".join(text_parts))

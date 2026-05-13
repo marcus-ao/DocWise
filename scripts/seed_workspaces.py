@@ -45,6 +45,27 @@ WORKSPACES = [
         "project_name": "mock-ops",
         "description": "Deterministic mock monitoring and log data.",
     },
+    {
+        "slug": "project_openclaw",
+        "name": "OpenClaw Agent Platform",
+        "workspace_type": WorkspaceType.project_pack,
+        "project_name": "openclaw",
+        "description": "OpenClaw open-source agent control plane documentation.",
+    },
+    {
+        "slug": "project_affine",
+        "name": "AFFiNE Knowledge Base",
+        "workspace_type": WorkspaceType.project_pack,
+        "project_name": "affine",
+        "description": "AFFiNE open-source knowledge OS documentation.",
+    },
+    {
+        "slug": "project_mineru",
+        "name": "MinerU Document Parser",
+        "workspace_type": WorkspaceType.project_pack,
+        "project_name": "mineru",
+        "description": "MinerU PDF extraction engine documentation.",
+    },
 ]
 
 
@@ -68,4 +89,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-

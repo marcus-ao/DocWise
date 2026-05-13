@@ -29,20 +29,67 @@ TOOL_PLANNER_SYSTEM = """\
 """
 
 
+def compose_tool_planner_user_prompt(
+    *,
+    query: str,
+    key_entities: list[str],
+    selected_project: str | None,
+    tools_to_plan: list[str],
+    retrieval_lines: list[str] | None = None,
+    recent_tool_failures: list[str] | None = None,
+    recent_turns: list[dict] | None = None,
+    context_summary: str | None = None,
+    route: str | None = None,
+    compaction_summary: str | None = None,
+) -> str:
+    context_parts = [f"用户问题: {query}"]
+    if route:
+        context_parts.append(f"路由: {route}")
+    if key_entities:
+        context_parts.append(f"关键实体: {', '.join(key_entities)}")
+    if selected_project:
+        context_parts.append(f"当前项目: {selected_project}")
+    context_parts.append(f"需要规划的工具: {', '.join(tools_to_plan)}")
+    if recent_turns:
+        rendered_turns = []
+        for turn in recent_turns:
+            user_query = str(turn.get('query') or turn.get('user') or '').strip()
+            answer = str(turn.get('answer') or turn.get('assistant') or '').strip()
+            tool_facts = turn.get("tool_facts") or []
+            if user_query:
+                rendered_turns.append(f"User: {user_query}")
+            if answer:
+                rendered_turns.append(f"Assistant: {answer}")
+            if tool_facts:
+                rendered_turns.append(f"Tool facts: {'; '.join(str(item) for item in tool_facts)}")
+        if rendered_turns:
+            context_parts.append(f"最近对话:\n{chr(10).join(rendered_turns)}")
+    if context_summary:
+        context_parts.append(f"上下文摘要:\n{context_summary}")
+    if retrieval_lines:
+        context_parts.append(f"证据元数据:\n{chr(10).join(retrieval_lines)}")
+    if recent_tool_failures:
+        context_parts.append(f"最近工具失败:\n{chr(10).join(recent_tool_failures)}")
+    if compaction_summary:
+        context_parts.append(f"压缩后的溢出事实:\n{compaction_summary}")
+    return "\n".join(context_parts)
+
+
 def build_tool_planner_messages(
     query: str,
     key_entities: list[str],
     selected_project: str | None,
     tools_to_plan: list[str],
 ) -> list[dict]:
-    context_parts = [f"用户问题: {query}"]
-    if key_entities:
-        context_parts.append(f"关键实体: {', '.join(key_entities)}")
-    if selected_project:
-        context_parts.append(f"当前项目: {selected_project}")
-    context_parts.append(f"需要规划的工具: {', '.join(tools_to_plan)}")
-
     return [
         {"role": "system", "content": TOOL_PLANNER_SYSTEM},
-        {"role": "user", "content": "\n".join(context_parts)},
+        {
+            "role": "user",
+            "content": compose_tool_planner_user_prompt(
+                query=query,
+                key_entities=key_entities,
+                selected_project=selected_project,
+                tools_to_plan=tools_to_plan,
+            ),
+        },
     ]

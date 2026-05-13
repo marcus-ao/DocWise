@@ -27,6 +27,8 @@ import {
   apiJson,
   LabChunkResult,
   LabCompareResponse,
+  LabHistoryTurn,
+  LabRewriterInfo,
   Workspace,
   WorkspaceListResponse,
 } from "@/lib/api"
@@ -98,11 +100,18 @@ export default function LabPage() {
   const [rrfK, setRrfK] = React.useState(60)
   const [rerankTopK, setRerankTopK] = React.useState(5)
   const [showParams, setShowParams] = React.useState(false)
+  const [useRewriter, setUseRewriter] = React.useState(true)
+  const [routeOverride, setRouteOverride] = React.useState<"auto" | StrategyRoute>("auto")
+  const [showHistory, setShowHistory] = React.useState(false)
+  const [historyJson, setHistoryJson] = React.useState("")
+  const [contextSummary, setContextSummary] = React.useState("")
+  const [historyError, setHistoryError] = React.useState<string | null>(null)
 
   const [results, setResults] = React.useState<Record<string, LabChunkResult[]>>({})
   const [timing, setTiming] = React.useState<Record<string, number>>({})
   const [overlap, setOverlap] = React.useState<Record<string, number>>({})
   const [errors, setErrors] = React.useState<Record<string, string>>({})
+  const [rewriterInfo, setRewriterInfo] = React.useState<LabRewriterInfo | null>(null)
   const [isRunning, setIsRunning] = React.useState(false)
 
   React.useEffect(() => {
@@ -120,8 +129,25 @@ export default function LabPage() {
 
   const abortControllerRef = React.useRef<AbortController | null>(null)
 
+  const parseHistoryPayload = React.useCallback((): LabHistoryTurn[] | null => {
+    if (!historyJson.trim()) return null
+    const parsed = JSON.parse(historyJson)
+    if (!Array.isArray(parsed)) {
+      throw new Error("历史模拟必须是 JSON 数组")
+    }
+    return parsed as LabHistoryTurn[]
+  }, [historyJson])
+
   const runCompare = React.useCallback(async () => {
     if (!query.trim() || selectedStrategies.length === 0 || selectedWorkspaces.length === 0) return
+    let historyTurns: LabHistoryTurn[] | null = null
+    try {
+      historyTurns = parseHistoryPayload()
+      setHistoryError(null)
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : "历史模拟 JSON 非法")
+      return
+    }
     setIsRunning(true)
     setErrors({})
 
@@ -135,33 +161,39 @@ export default function LabPage() {
       const data = await apiJson<LabCompareResponse>("/lab/compare", {
         method: "POST",
         signal: controller.signal,
-        body: JSON.stringify({
-          query,
-          workspace_ids: selectedWorkspaces,
-          strategies: selectedStrategies,
-          top_k: topK,
-          rrf_k: rrfK,
-          rerank_top_k: rerankTopK,
-        }),
-      })
+          body: JSON.stringify({
+            query,
+            workspace_ids: selectedWorkspaces,
+            strategies: selectedStrategies,
+            top_k: topK,
+            rrf_k: rrfK,
+            rerank_top_k: rerankTopK,
+            use_rewriter: useRewriter,
+            route_override: routeOverride === "auto" ? null : routeOverride,
+            recent_turns: historyTurns,
+            context_summary: contextSummary.trim() || null,
+          }),
+        })
       if (controller.signal.aborted) return
 
       setResults(data.results)
       setTiming(data.timing_ms)
       setOverlap(data.overlap_matrix)
       setErrors(data.errors)
+      setRewriterInfo(data.rewriter)
     } catch (err) {
       if (controller.signal.aborted) return
       setErrors({ compare: err instanceof Error ? err.message : "检索对比失败" })
       setResults({})
       setTiming({})
       setOverlap({})
+      setRewriterInfo(null)
     } finally {
       if (!controller.signal.aborted) {
         setIsRunning(false)
       }
     }
-  }, [query, selectedStrategies, selectedWorkspaces, topK, rrfK, rerankTopK])
+  }, [contextSummary, parseHistoryPayload, query, rerankTopK, rrfK, routeOverride, selectedStrategies, selectedWorkspaces, topK, useRewriter])
 
   React.useEffect(() => {
     void runCompare()
@@ -341,6 +373,71 @@ export default function LabPage() {
                   onChange={setRerankTopK}
                   hint="二次排序后的最终输出数量"
                 />
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium text-foreground/80">Rewriter 开关</span>
+                  <button
+                    type="button"
+                    onClick={() => setUseRewriter((prev) => !prev)}
+                    className={cn(
+                      "h-10 rounded-xl border text-sm font-medium transition-colors",
+                      useRewriter
+                        ? "border-primary/30 bg-primary/10 text-primary"
+                        : "border-border/50 bg-muted/20 text-muted-foreground",
+                    )}
+                  >
+                    {useRewriter ? "已启用 rewrite" : "已关闭 rewrite"}
+                  </button>
+                  <span className="text-[10px] text-muted-foreground/70">对比直检索与改写后检索</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium text-foreground/80">Route Override</span>
+                  <select
+                    value={routeOverride}
+                    onChange={(event) => setRouteOverride(event.target.value as "auto" | StrategyRoute)}
+                    className="h-10 rounded-xl border border-border/50 bg-background/50 px-3 text-sm text-foreground"
+                  >
+                    <option value="auto">Auto</option>
+                    <option value="tech_general">tech_general</option>
+                    <option value="project_specific">project_specific</option>
+                    <option value="troubleshooting">troubleshooting</option>
+                    <option value="runbook_generation">runbook_generation</option>
+                  </select>
+                  <span className="text-[10px] text-muted-foreground/70">用于对齐生产 route 行为</span>
+                </div>
+              </div>
+              <div className="pt-4 border-t border-border/40 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-medium text-foreground/80">对话历史模拟</div>
+                    <div className="text-[10px] text-muted-foreground/70">为 follow-up query 提供 recent_turns 与 summary</div>
+                  </div>
+                  <Button variant="ghost" size="sm" className="rounded-xl text-xs" onClick={() => setShowHistory((prev) => !prev)}>
+                    {showHistory ? "收起" : "展开"}
+                  </Button>
+                </div>
+                {showHistory && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-medium text-foreground/80">recent_turns JSON</label>
+                      <textarea
+                        value={historyJson}
+                        onChange={(event) => setHistoryJson(event.target.value)}
+                        className="min-h-[150px] rounded-2xl border border-border/50 bg-background/50 px-3 py-3 font-mono text-xs text-foreground outline-none focus:border-primary/40"
+                        placeholder='[{"query":"Airflow 报错怎么办？","answer":"先看日志","tool_facts":["query_service_status: service=airflow status=degraded alerts=1"]}]'
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-medium text-foreground/80">context_summary</label>
+                      <textarea
+                        value={contextSummary}
+                        onChange={(event) => setContextSummary(event.target.value)}
+                        className="min-h-[150px] rounded-2xl border border-border/50 bg-background/50 px-3 py-3 text-xs text-foreground outline-none focus:border-primary/40"
+                        placeholder="例如：当前在排查 Airflow scheduler 故障，前序结论是日志里出现 heartbeat lag。"
+                      />
+                    </div>
+                  </div>
+                )}
+                {historyError && <div className="text-xs text-orange-600 dark:text-orange-400">{historyError}</div>}
               </div>
             </motion.div>
           )}
@@ -356,6 +453,31 @@ export default function LabPage() {
           <ArrowRightLeft size={16} />
           部分策略降级：{Object.entries(errors).map(([key, value]) => `${key}: ${value}`).join("；")}
         </motion.div>
+      )}
+
+      {rewriterInfo && (
+        <Card className="shrink-0 p-4 bg-card/60 backdrop-blur-md border-border/50 rounded-2xl">
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles size={14} className="text-primary" />
+            <h3 className="text-sm font-semibold text-foreground/90">Rewrite 诊断</h3>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 text-xs">
+            <RewriteField label="Route" value={rewriterInfo.route} />
+            <RewriteField label="Fallback" value={rewriterInfo.fallback_reason || "none"} />
+            <RewriteField label="使用状态" value={rewriterInfo.used ? "enabled" : "disabled"} />
+            <RewriteField label="Original" value={rewriterInfo.original_query} />
+            <RewriteField label="Rewritten" value={rewriterInfo.rewritten_query} />
+            <RewriteField label="Effective" value={rewriterInfo.effective_query} />
+          </div>
+          {rewriterInfo.missing_entities.length > 0 && (
+            <div className="mt-3 text-xs text-orange-600 dark:text-orange-400">
+              缺失关键实体：{rewriterInfo.missing_entities.join(", ")}
+            </div>
+          )}
+          {rewriterInfo.diagnostic_hint && (
+            <div className="mt-2 text-xs text-muted-foreground">{rewriterInfo.diagnostic_hint}</div>
+          )}
+        </Card>
       )}
 
       <div className="flex-1 min-h-0 flex flex-col gap-5">
@@ -379,6 +501,17 @@ export default function LabPage() {
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+type StrategyRoute = "tech_general" | "project_specific" | "troubleshooting" | "runbook_generation"
+
+function RewriteField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border/40 bg-background/40 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{label}</div>
+      <div className="text-foreground/90 break-words">{value || "—"}</div>
     </div>
   )
 }
@@ -701,4 +834,3 @@ function ChunkCard({ meta, chunk, index }: { meta: StrategyMeta; chunk: LabChunk
     </motion.div>
   )
 }
-

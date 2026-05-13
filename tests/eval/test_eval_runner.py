@@ -274,7 +274,7 @@ class TestEvaluatorHelpers:
             class route:
                 value = "project_specific"
 
-        assert _expected_workspace_slugs(Case()) == ["project_airflow"]
+        assert _expected_workspace_slugs(Case()) == ["project_airflow", "public_tech"]
 
     def test_expected_workspace_slugs_for_troubleshooting_includes_public(self):
         class Case:

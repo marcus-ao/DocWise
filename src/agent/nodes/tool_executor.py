@@ -143,7 +143,7 @@ async def tool_executor(state: AgentState, config: RunnableConfig | None = None)
 
     elapsed = int((time.perf_counter() - start) * 1000)
     await write_trace_event(
-        run_id=state["trace_id"], node_name="tool_executor", sequence_no=9,
+        run_id=state["trace_id"], node_name="tool_executor", sequence_no=10,
         status="success",
         input_summary={"tools": tools_to_call, "loop_count": state["tool_loop_count"]},
         output_summary={

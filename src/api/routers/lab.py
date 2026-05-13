@@ -5,16 +5,29 @@ import time
 
 from fastapi import APIRouter, HTTPException, status
 
+from src.agent.nodes.query_router import _rule_route
+from src.agent.rewriter import RewriterResult, rewrite_query
 from src.api.deps import DbSession
 from src.config.redactor import redact_secrets
 from src.document.embedder import embed_with_cache
 from src.retrieval import hybrid, keyword_search, reranker, vector_store
 from src.retrieval.metadata_filter import resolve_workspace_ids
-from src.schemas.frontend import LabChunkResult, LabCompareRequest, LabCompareResponse
+from src.schemas.frontend import (
+    LabChunkResult,
+    LabCompareRequest,
+    LabCompareResponse,
+    LabRewriterInfo,
+)
 
 router = APIRouter(prefix="/lab", tags=["lab"])
 
 VALID_STRATEGIES = {"vector_only", "keyword_only", "hybrid", "hybrid_rerank"}
+VALID_LAB_ROUTES = {
+    "tech_general",
+    "project_specific",
+    "troubleshooting",
+    "runbook_generation",
+}
 
 
 @router.post("/compare", response_model=LabCompareResponse)
@@ -25,9 +38,17 @@ async def compare_retrieval_strategies(db: DbSession, request: LabCompareRequest
     if not strategies:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="no supported strategies requested")
 
+    route = _resolve_lab_route(request)
+    rewriter_result = await _resolve_lab_rewriter(request, route)
+    retrieval_query = rewriter_result.effective_query
     workspace_ids = await resolve_workspace_ids(db, request.workspace_ids)
     if not workspace_ids:
-        return LabCompareResponse(results={strategy: [] for strategy in strategies}, overlap_matrix={}, timing_ms={})
+        return LabCompareResponse(
+            results={strategy: [] for strategy in strategies},
+            overlap_matrix={},
+            timing_ms={},
+            rewriter=_lab_rewriter_info(rewriter_result, used=request.use_rewriter),
+        )
 
     embedding: list[float] | None = None
     results: dict[str, list[LabChunkResult]] = {}
@@ -38,10 +59,10 @@ async def compare_retrieval_strategies(db: DbSession, request: LabCompareRequest
         started = time.perf_counter()
         try:
             if strategy in {"vector_only", "hybrid", "hybrid_rerank"} and embedding is None:
-                embedding = await embed_with_cache(request.query)
+                embedding = await embed_with_cache(retrieval_query)
             chunks = await _run_strategy(
                 db,
-                request.query,
+                retrieval_query,
                 workspace_ids,
                 strategy,
                 request.top_k,
@@ -61,6 +82,7 @@ async def compare_retrieval_strategies(db: DbSession, request: LabCompareRequest
         timing_ms=timing_ms,
         degraded=bool(errors),
         errors=errors,
+        rewriter=_lab_rewriter_info(rewriter_result, used=request.use_rewriter),
     )
 
 
@@ -121,3 +143,48 @@ def _overlap_matrix(results: dict[str, list[LabChunkResult]]) -> dict[str, float
             denominator = max(len(left_ids | right_ids), 1)
             matrix[f"{left_name}_vs_{right_name}"] = len(left_ids & right_ids) / denominator
     return matrix
+
+
+def _resolve_lab_route(request: LabCompareRequest) -> str:
+    if request.route_override:
+        return request.route_override
+    rule_result = _rule_route(request.query)
+    if rule_result and rule_result.get("route") in VALID_LAB_ROUTES:
+        return str(rule_result["route"])
+    return "tech_general"
+
+
+async def _resolve_lab_rewriter(request: LabCompareRequest, route: str) -> RewriterResult:
+    if not request.use_rewriter:
+        return RewriterResult(
+            original_query=request.query.strip(),
+            rewritten_query=request.query.strip(),
+            effective_query=request.query.strip(),
+            route=route,
+            history_used=False,
+            fallback_reason="",
+            missing_entities=[],
+            diagnostic_hint=None,
+        )
+    return await rewrite_query(
+        original_query=request.query,
+        route=route,
+        key_entities=[],
+        recent_turns=[turn.model_dump() for turn in request.recent_turns] if request.recent_turns else None,
+        context_summary=request.context_summary,
+        use_history=True,
+    )
+
+
+def _lab_rewriter_info(result: RewriterResult, *, used: bool) -> LabRewriterInfo:
+    return LabRewriterInfo(
+        used=used,
+        route=result.route,
+        original_query=result.original_query,
+        rewritten_query=result.rewritten_query,
+        effective_query=result.effective_query,
+        fallback_reason=result.fallback_reason,
+        missing_entities=result.missing_entities,
+        diagnostic_hint=result.diagnostic_hint,
+    )
+

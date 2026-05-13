@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from openai import RateLimitError
 from sqlalchemy import delete, exists, func, select
 
+from src.agent.conversation import CANCELLED_RUN_MARKER, prepare_stream_conversation_run
 from src.agent.graph import build_agent_graph, run_agent
 from src.agent.state import RetryableError, RetryBudget, create_initial_state
 from src.api.citations import citation_from_dict, citations_from_final, citations_from_retrieval_rows
@@ -23,7 +24,7 @@ from src.models.agent import AgentRun, ToolCall, TraceEvent
 from src.models.feedback import Feedback
 from src.models.query import Query, RetrievalResult
 from src.models.workspace import Workspace
-from src.observability import complete_agent_run, create_agent_run, update_agent_run_progress
+from src.observability import complete_agent_run, update_agent_run_progress
 from src.schemas.chat import (
     ChatRequest,
     ChatResponse,
@@ -68,6 +69,7 @@ async def _persist_partial_completion(
     final_state: dict,
     partial_answer: str,
     start_time: float,
+    cancelled: bool = False,
 ) -> None:
     answer = partial_answer or str(final_state.get("answer") or "")
     await complete_agent_run(
@@ -83,7 +85,8 @@ async def _persist_partial_completion(
         refused=bool(final_state.get("refused", False)),
         refusal_reason=final_state.get("refusal_reason"),
         latency_ms=int((time.perf_counter() - start_time) * 1000),
-        error_message=final_state.get("error"),
+        error_message=CANCELLED_RUN_MARKER if cancelled else final_state.get("error"),
+        display_workspace_slug=final_state.get("display_workspace_slug"),
     )
 
 
@@ -155,6 +158,8 @@ def _stored_conversation_title(query: Query) -> str:
 
 def _reasoning_title(node_name: str) -> str:
     return {
+        "context_loader": "上下文装配",
+        "scope_selector": "知识域范围",
         "query_router": "路由决策",
         "hybrid_retriever": "混合检索",
         "reranker": "结果重排",
@@ -190,6 +195,21 @@ def _reasoning_payload(event: dict) -> dict | None:
                 "confidence": float(state.get("route_confidence") or 0.0),
             }
         )
+    elif node_name == "scope_selector":
+        payload.update(
+            {
+                "reason": str(state.get("scope_reason_code") or "scope_resolved"),
+                "workspace_policy": state.get("workspace_policy"),
+                "workspace_ids": list(state.get("workspace_ids") or []),
+                "effective_workspace_slugs": list(state.get("effective_workspace_slugs") or []),
+                "selected_project": state.get("selected_project"),
+                "scope_reason_code": state.get("scope_reason_code"),
+                "scope_reason_params": state.get("scope_reason_params"),
+            }
+        )
+    elif node_name == "context_loader":
+        turns = list(state.get("recent_turns") or [])
+        payload["reason"] = f"加载 {len(turns)} 轮历史上下文"
     elif node_name == "hybrid_retriever":
         payload.update(
             {
@@ -226,7 +246,7 @@ async def map_langgraph_event_to_sse(event: dict) -> str | None:
     name = event.get("name")
     state = _state_from_event(event)
 
-    if event_type == "on_chain_end" and name == "query_router":
+    if event_type == "on_chain_end" and name == "query_router" and state.get("route") == "out_of_scope":
         return format_sse(
             "route",
             {
@@ -235,6 +255,23 @@ async def map_langgraph_event_to_sse(event: dict) -> str | None:
                 "workspace_policy": str(state.get("workspace_policy", "public_only")),
                 "workspace_ids": list(state.get("workspace_ids") or []),
                 "selected_project": state.get("selected_project"),
+                "effective_workspace_slugs": [],
+                "scope_reason_code": "out_of_scope",
+                "scope_reason_params": {"route": "out_of_scope"},
+            },
+        )
+    if event_type == "on_chain_end" and name == "scope_selector":
+        return format_sse(
+            "route",
+            {
+                "route": str(state.get("route", "tech_general")),
+                "confidence": float(state.get("route_confidence") or 0.0),
+                "workspace_policy": str(state.get("workspace_policy", "public_only")),
+                "workspace_ids": list(state.get("workspace_ids") or []),
+                "selected_project": state.get("selected_project"),
+                "effective_workspace_slugs": list(state.get("effective_workspace_slugs") or []),
+                "scope_reason_code": state.get("scope_reason_code"),
+                "scope_reason_params": state.get("scope_reason_params"),
             },
         )
     if event_type == "on_chain_end" and name == "hybrid_retriever":
@@ -369,7 +406,9 @@ async def _tool_calls_for_run(db: DbSession, run_id: UUID) -> list[ToolCallItem]
 async def _load_conversation_runs(db: DbSession, query_id: UUID) -> list[AgentRun]:
     rows = (
         await db.scalars(
-            select(AgentRun).where(AgentRun.query_id == query_id).order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
+            select(AgentRun)
+            .where(AgentRun.query_id == query_id)
+            .order_by(AgentRun.turn_index.asc().nullslast(), AgentRun.created_at.asc(), AgentRun.id.asc())
         )
     ).all()
     return list(rows)
@@ -399,7 +438,7 @@ async def chat(request: ChatRequest, db: DbSession) -> ChatResponse:
 
 
 @router.post("/stream")
-async def chat_stream(request: ChatRequest) -> StreamingResponse:
+async def chat_stream(request: ChatRequest, db: DbSession) -> StreamingResponse:
     async def event_generator() -> AsyncIterator[str]:
         start = time.perf_counter()
         conversation_id = str(request.conversation_id or uuid4())
@@ -410,21 +449,43 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         has_persisted_first_progress = False
         state = create_initial_state(original_query=request.query, trace_id=run_id)
         state["query_id"] = query_id
+        state["conversation_id"] = conversation_id
         if request.workspace_slug:
-            state["selected_workspace_name"] = request.workspace_slug
+            state["selected_workspace_slug"] = request.workspace_slug
         final_state: dict = dict(state)
         out_of_scope = False
         cancel_event = asyncio.Event()
         try:
-            run_id = await create_agent_run(
-                query_id=query_id,
+            prepared = await prepare_stream_conversation_run(
+                db,
+                conversation_id=request.conversation_id,
                 original_query=request.query,
                 workspace_slug=request.workspace_slug,
             )
+            query_id = str(prepared.conversation_id)
+            conversation_id = query_id
+            run_id = prepared.run_id
             RUN_CANCEL_EVENTS[run_id] = cancel_event
             state["trace_id"] = run_id
+            state["query_id"] = query_id
+            state["conversation_id"] = conversation_id
+            state["turn_index"] = prepared.turn_index
+            state["parent_run_id"] = str(prepared.parent_run_id) if prepared.parent_run_id else None
             final_state["trace_id"] = run_id
-            yield format_sse("run", {"query_id": query_id, "run_id": run_id})
+            final_state["query_id"] = query_id
+            final_state["conversation_id"] = conversation_id
+            final_state["turn_index"] = prepared.turn_index
+            final_state["parent_run_id"] = state["parent_run_id"]
+            yield format_sse(
+                "run",
+                {
+                    "query_id": query_id,
+                    "conversation_id": conversation_id,
+                    "run_id": run_id,
+                    "turn_index": prepared.turn_index,
+                    "parent_run_id": state["parent_run_id"],
+                },
+            )
             graph = cast(EventStreamGraph, build_agent_graph())
             async for item_type, payload in _events_with_heartbeat(graph, dict(state), cancel_event=cancel_event):
                 if item_type == "heartbeat":
@@ -437,11 +498,13 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                         final_state=final_state,
                         partial_answer=partial_answer,
                         start_time=start,
+                        cancelled=True,
                     )
                     yield format_sse(
                         "cancelled",
                         {
                             "query_id": query_id,
+                            "conversation_id": conversation_id,
                             "run_id": str(final_state.get("trace_id") or run_id),
                             "answer": partial_answer,
                             "latency_ms": int((time.perf_counter() - start) * 1000),
@@ -497,6 +560,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 status="failed",
                 answer=None,
                 error_message=str(error)[:500],
+                display_workspace_slug=final_state.get("display_workspace_slug"),
             )
             yield format_sse(
                 "error",
@@ -518,6 +582,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
             {
                 "query_id": query_id,
                 "run_id": str(final_state.get("trace_id") or run_id),
+                "conversation_id": conversation_id,
                 "refused": bool(final_state.get("refused", False)),
                 "refusal_reason": final_state.get("refusal_reason"),
                 "latency_ms": int((time.perf_counter() - start) * 1000),

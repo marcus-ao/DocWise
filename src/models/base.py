@@ -34,6 +34,7 @@ class DocumentStatus(enum.StrEnum):
     processing = "processing"
     ready = "ready"
     error = "error"
+    container = "container"
 
 
 class DocType(enum.StrEnum):
@@ -127,6 +128,5 @@ class SourceType(enum.StrEnum):
 
 class WorkspacePolicy(enum.StrEnum):
     public_only = "public_only"
-    selected_project_only = "selected_project_only"
     selected_project_plus_public = "selected_project_plus_public"
     none = "none"

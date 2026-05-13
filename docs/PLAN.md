@@ -14,7 +14,7 @@ DocWise 的目标是一个企业级开发者知识工作流 Agent：
 | --- | --- |
 | API | FastAPI，`src/api/app.py` 注册 chat、agent、documents、eval、traces、lab、workspaces、admin 路由 |
 | Worker | arq worker，`src/tasks/worker.py` 暴露 ingest、reindex、eval job |
-| DB | PostgreSQL + pgvector + tsvector，SQLAlchemy async，Alembic 当前 head 为 `005` |
+| DB | PostgreSQL + pgvector + tsvector，SQLAlchemy async，Alembic 当前 head 为 `006` |
 | Cache/Queue | Redis，用于 arq、embedding cache 和入库锁 |
 | Object Storage | MinIO，默认 bucket `docwise-documents`，seed 和 ingestion 会确保 bucket 存在 |
 | LLM | DeepSeek-compatible chat wrapper，区分 fast/pro 模型 |
@@ -153,13 +153,13 @@ START
 validate_mock_data: ALL CHECKS PASSED
 validate_eval_cases: ALL CHECKS PASSED (20 retrieval + 30 qa)
 ruff: All checks passed!
-pytest: 121 passed
+pytest: 174 passed
 ```
 
 真实 smoke 已验证过的链路：
 
 - Docker `postgres`、`redis`、`minio` healthy
-- Alembic 到 `005 (head)`
+- Alembic 到 `006 (head)`（Phase A M2 多轮字段已落地：`agent_runs.turn_index/parent_run_id` + `queries.context_summary`）
 - `scripts.seed_demo` 完成
 - `scripts.ingest_docs --workspace public_tech --dir data\raw\airflow` 两份 demo 文档到 `ready`
 - `--enqueue` 对已有文档返回 succeeded job
@@ -221,8 +221,6 @@ V1 形态收敛为「公开技术文档知识库驱动的内部 RAG + 运维辅�
 | 架构、任务、路线图 | `docs/PLAN.md` |
 | 编码规范、文件边界、Agent 协作规则 | `docs/AGENT.md` |
 | 接口契约 | `docs/contracts/` |
-| 恢复记录 | `docs/RECOVERY_STATUS.md` |
-| PowerShell API smoke 细节 | `docs/POWERSHELL_SMOKE_TEST.md` |
 
 ## 12. 实施工作包与当前状态
 
@@ -230,7 +228,7 @@ V1 形态收敛为「公开技术文档知识库驱动的内部 RAG + 运维辅�
 
 | 工作包 | 当前主要路径 | 当前状态 | 下一步关注 |
 | --- | --- | --- | --- |
-| WP-01 Infra/Foundation | `pyproject.toml`, Dockerfile, Compose, Alembic, `src/config/`, `src/db/`, `src/models/`, `src/schemas/` | 已恢复到可运行，本地 infra health、Alembic head=005、seed 基线可用；queries 表已含 `conversation_title/is_archived` | Migration 006（`agent_runs.turn_index/parent_run_id`, `queries.context_summary`）、Migration 007（`agent_runs.grounding_report_json`）、前端 Docker 集成、CI workflow |
+| WP-01 Infra/Foundation | `pyproject.toml`, Dockerfile, Compose, Alembic, `src/config/`, `src/db/`, `src/models/`, `src/schemas/` | 已恢复到可运行，本地 infra health、Alembic head=006、seed 基线可用；Phase A M2 多轮字段已落地（`agent_runs.turn_index/parent_run_id` + `queries.context_summary`） | Migration 007（Phase B M8：`documents.provenance` + `parent_document_id` + `is_container` + `DocumentStatus.container`）、Migration 008（Phase C M5：`agent_runs.grounding_report_json`）、前端 Docker 集成、CI workflow |
 | WP-02 LLM/Document/Tasks | `src/llm/`, `src/document/`, `src/tasks/`, `scripts/ingest_docs.py`, `data/raw/` | chunker、ingestion、MinIO bucket、embedding、worker 路径已恢复 | RST parser、真实文档批量入库、大文件处理 |
 | WP-03 Retrieval/Agent | `src/retrieval/`, `src/agent/` | hybrid retrieval、rerank fallback、LangGraph 12 节点主链路完整；`POST /lab/compare` 已支持 4 种策略（`vector_only / keyword_only / hybrid / hybrid_rerank`）+ `rrf_k / rerank_top_k` 参数；SSE reasoning 事件已接入 | `context_loader` 节点、多轮对话摘要注入 `query_rewriter`、HyDE / Query Decomposition 实验 |
 | WP-04 API/Frontend | `src/api/`, `web/` | FastAPI 路由完整（chat/agent/documents/eval/traces/lab/workspaces/admin）；Next.js 5 核心页 + History/Archive/Home 全部上线；Lab 页支持策略多选 + 参数滑块 + 重叠度热力图 + 耗时对比 | 多轮对话前端、反馈持久化、文件附件 |
@@ -247,11 +245,11 @@ V1 形态收敛为「公开技术文档知识库驱动的内部 RAG + 运维辅�
 ### 当前验收清单
 
 - [x] Docker `postgres` / `redis` / `minio` healthy。
-- [x] Alembic 当前版本为 `005 (head)`。
+- [x] Alembic 当前版本为 `006 (head)`（Phase A M2 已落地）。
 - [x] `scripts.seed_demo` 成功并创建/确认 MinIO bucket。
 - [x] `data/mock/` 与 `data/eval/` validation 通过。
 - [x] `ruff check src tests scripts alembic` 通过。
-- [x] `pytest -q` 当前为 `121 passed`。
+- [x] `pytest -q` 当前为 `174 passed`。
 - [x] `scripts.ingest_docs --workspace public_tech --dir data\raw\airflow` 同步入库到 ready。
 - [x] `scripts.ingest_docs --workspace public_tech --dir data\raw\airflow --enqueue` 返回已有 succeeded job。
 - [ ] 真实文档 200+ 入库，hit_rate@5 > 75%。
@@ -338,6 +336,8 @@ M0 (契约基线) ──┐
 
 **目标**：把 LangGraph 从「节点图」升级为「上下文运行时」，durable history 与 model-visible context 分离。
 
+**当前实现注记**：M1 已按 **per-call budget** 落地，当前通过 `answer_context_budget` 与 `tool_planner_context_budget` 分别控制上下文预算，而不是严格按示意图里的全局 `32K` 桶式切分实现。
+
 **子任务**：
 
 - 新建 `src/agent/context/` 模块：
@@ -416,15 +416,15 @@ M0 (契约基线) ──┐
 
 ### 14.5 M4 — Query Rewriter 修复与检索输入规范化
 
-**目标**：先修 rewriter 当前因 route 参数缺失导致的 fallback，再把它升级为 route-aware、context-aware 的检索输入规范化层。
+**目标**：当前基础 bug 已修，M4 重点转为把 rewriter 收敛为 route-aware、context-aware 的检索输入规范化层，并让 `effective_query` 真正进入检索链路与 Lab 对比工具。
 
 **子任务**：
 
-- **Bug fix**：`src/agent/nodes/query_rewriter.py` 调用 prompt 时当前遗漏 route 参数，导致 template fallback 成「原样透传」。先修复这个调用，加回归测试。
-- **字段分离**：在 `AgentState` 里明确区分 `original_query`（用户原话）/ `rewritten_query`（LLM 改写）/ `effective_query`（最终送入 retrieval 的 query，可能 == rewritten 或进一步处理）。
-- **Context-aware rewrite**：rewriter 接收来自 M2 的 `context_summary`，把 follow-up 如「那 task 超时呢？」改写为独立查询「Airflow task 超时排查步骤」。
-- **硬实体保留**：prompt 层明确要求保留原 query 中的错误码（`ECONNRESET`、`5xx`）、服务名、版本号、组件名（`scheduler`、`executor`）、文件路径——即使上下文摘要里没有。加正则 postprocess：rewrite 后若原 query 的硬实体丢失则回退到原 query。
-- **Trace 与 Lab 同步写入**：rewrite 前后的 query 都写入 `trace_events`（便于 eval 分析），`/lab/compare` 也接受 `use_rewriter: bool` 开关便于策略对比。
+- **字段所有权收敛**：`query_rewriter` 成为 `effective_query` 的唯一写入者；`tool_planner` / `answer_generator` 不再覆盖它。
+- **Route-aware + history-aware rewrite**：rewriter 继续消费 M2 的 `recent_turns/context_summary`，把 follow-up 如「那 task 超时呢？」改写为独立查询。
+- **硬实体守卫**：对白名单实体（错误码、HTTP 状态码、版本、路径、配置文件名、`key_entities`）做保守检查；缺少任一 critical entity 时，`effective_query` 回退到 `original_query`。
+- **检索链路接线**：`hybrid_retriever` 与 `reranker` 统一改读 `effective_query`。
+- **Trace 与 Lab 同步写入**：rewrite 前后的 query 与 fallback 诊断写入 `trace_events`，`/lab/compare` 增加 `use_rewriter`、`route_override` 和 history 模拟输入。
 
 **交付物**：稳定的 route-aware + context-aware rewrite 机制。
 
@@ -533,7 +533,7 @@ M0 (契约基线) ──┐
   - `clarify`：证据模糊或 query 有歧义，生成澄清问题（如"你指的是 Airflow 2.x 还是 1.x？"）。
   - `refuse`：明确 out_of_scope 或 critical claim 无法 ground，拒答并说明原因。
 - **M5.5 Grounding report 持久化**：
-  - Migration 007：`agent_runs.grounding_report_json` JSONB 字段。
+  - Migration 008：`agent_runs.grounding_report_json` JSONB 字段（注：原 §12 路线图把此 migration 标为 `007`，但 Phase B M8 已先行占用 `007` 用于 `documents.provenance`/`parent_document_id`/`is_container`。M5 的 grounding migration 顺延为 `008`，`down_revision = "007"`。）
   - 记录：`{critical_claims: [...], aligned: [...], unsupported: [...], narrative_count: N, threshold_met: bool, refusal_state: "continue"|"clarify"|"refuse"}`。
   - 前端 chat 页面/ trace 页面可展示 grounding 细节。
 
@@ -827,8 +827,8 @@ M0 (契约基线) ──┐
 | 里程碑 | Phase | 完成标志 | 依赖 |
 | --- | --- | --- | --- |
 | **MA** | Phase A 结束 | 多轮连续 5 轮不丢主题；scope 运行时策略可解释；rewrite 前后可追溯；migration 006 上线 | — |
-| **MB** | Phase B 结束 | 200+ 真实文档入库；`chunk_index.json` 导出；现有 eval 经 chunk remap 可运行 | MA |
-| **MC** | Phase C 结束 | Grounding 闭环 + Tool artifact 链 + Runbook 端到端 + 至少 1 个新检索策略优于 baseline；migration 007 上线 | MB |
+| **MB** | Phase B 结束 | 200+ 真实文档入库；`chunk_index.json` 导出；现有 eval 经 chunk remap 可运行；migration 007 上线（`documents.provenance` + `parent_document_id` + `is_container` + `DocumentStatus.container`） | MA |
+| **MC** | Phase C 结束 | Grounding 闭环 + Tool artifact 链 + Runbook 端到端 + 至少 1 个新检索策略优于 baseline；migration 008 上线 | MB |
 | **MD** | Phase D 结束 | SSE 单一协议前后端一致；eval 100+ cases + 六层归因；tool policy 框架就位 | MC |
 
 ### 18.2 跨 Phase 质量门
@@ -841,6 +841,7 @@ M0 (契约基线) ──┐
 ./.venv/Scripts/python.exe -m pytest -q
 ./.venv/Scripts/python.exe -m scripts.validate_mock_data
 ./.venv/Scripts/python.exe -m scripts.validate_eval_cases
+./.venv/Scripts/python.exe -m scripts.smoke_multi_turn --base-url http://127.0.0.1:8000
 
 # Phase B 额外
 ./.venv/Scripts/python.exe -m scripts.download_real_docs --source all

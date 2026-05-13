@@ -35,11 +35,11 @@ _OUT_OF_SCOPE_PATTERNS = re.compile(
 )
 
 RouteName = Literal["tech_general", "project_specific", "troubleshooting", "runbook_generation", "out_of_scope"]
-WorkspacePolicyName = Literal["public_only", "selected_project_only", "selected_project_plus_public", "none"]
+WorkspacePolicyName = Literal["public_only", "selected_project_plus_public", "none"]
 
 _ROUTE_TO_POLICY: dict[RouteName, WorkspacePolicyName] = {
     "tech_general": "public_only",
-    "project_specific": "selected_project_only",
+    "project_specific": "selected_project_plus_public",
     "troubleshooting": "selected_project_plus_public",
     "runbook_generation": "selected_project_plus_public",
     "out_of_scope": "none",
@@ -69,6 +69,7 @@ def _rule_route(query: str) -> dict | None:
 async def query_router(state: AgentState, config: RunnableConfig | None = None) -> AgentState:
     start = time.perf_counter()
     query = state["rewritten_query"] or state["original_query"]
+    history_used = False
 
     rule_result = _rule_route(query)
     if rule_result:
@@ -80,7 +81,12 @@ async def query_router(state: AgentState, config: RunnableConfig | None = None) 
         state["key_entities"] = rule_result["key_entities"]
     else:
         try:
-            messages = build_router_messages(query)
+            history_used = bool(state.get("recent_turns") or state.get("context_summary"))
+            messages = build_router_messages(
+                query,
+                recent_turns=state.get("recent_turns") or None,
+                context_summary=state.get("context_summary"),
+            )
             resp = await chat_completion(
                 messages, model="fast", temperature=0,
                 response_format={"type": "json_object"}, timeout=15.0,
@@ -109,13 +115,18 @@ async def query_router(state: AgentState, config: RunnableConfig | None = None) 
     await write_trace_event(
         run_id=state["trace_id"],
         node_name="query_router",
-        sequence_no=2,
+        sequence_no=3,
         status="success",
         input_summary={"query": query[:200]},
         output_summary={
             "route": state["route"],
             "confidence": state["route_confidence"],
             "workspace_policy": state["workspace_policy"],
+        },
+        metadata={
+            "history_used": history_used,
+            "recent_turn_count": len(state.get("recent_turns") or []),
+            "context_summary_present": bool(state.get("context_summary")),
         },
         latency_ms=elapsed,
     )

@@ -11,6 +11,7 @@ from src.agent._tracer_stub import complete_agent_run, create_agent_run
 from src.agent.nodes import (
     answer_generator,
     citation_verifier,
+    context_loader,
     evidence_validator,
     hybrid_retriever,
     input_normalizer,
@@ -77,6 +78,7 @@ def build_agent_graph() -> StateGraph:
     graph = StateGraph(AgentState)
 
     graph.add_node("input_normalizer", safe_node(input_normalizer))
+    graph.add_node("context_loader", safe_node(context_loader))
     graph.add_node("query_router", safe_node(query_router))
     graph.add_node("scope_selector", safe_node(scope_selector))
     graph.add_node("query_rewriter", safe_node(query_rewriter))
@@ -90,7 +92,8 @@ def build_agent_graph() -> StateGraph:
     graph.add_node("refusal_checker", safe_node(refusal_checker))
 
     graph.set_entry_point("input_normalizer")
-    graph.add_edge("input_normalizer", "query_router")
+    graph.add_edge("input_normalizer", "context_loader")
+    graph.add_edge("context_loader", "query_router")
 
     graph.add_conditional_edges(
         "query_router",
@@ -150,6 +153,9 @@ async def run_agent(
 
     state = create_initial_state(original_query=original_query, trace_id=run_id)
     state["query_id"] = qid
+    state["conversation_id"] = qid
+    if workspace_slug:
+        state["selected_workspace_slug"] = workspace_slug
     budget = RetryBudget(max_total_retries=3)
     config = {"configurable": {"retry_budget": budget}}
 
@@ -176,6 +182,7 @@ async def run_agent(
         refusal_reason=final_state.get("refusal_reason"),
         latency_ms=latency_ms,
         error_message=final_state.get("error"),
+        display_workspace_slug=final_state.get("display_workspace_slug"),
     )
 
     return final_state

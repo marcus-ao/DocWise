@@ -50,7 +50,7 @@ async def citation_verifier(state: AgentState, config: RunnableConfig | None = N
     await write_trace_event(
         run_id=state["trace_id"],
         node_name="citation_verifier",
-        sequence_no=11,
+        sequence_no=12,
         status="success",
         input_summary={"answer_length": len(answer)},
         output_summary={"valid_count": len(citations), "invalid_count": len(invalid)},

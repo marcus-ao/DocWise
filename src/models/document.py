@@ -24,6 +24,14 @@ class Document(TimestampMixin, Base):
     content_type: Mapped[str] = mapped_column(String(128), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    document_metadata: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True, default=None)
+    provenance: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    parent_document_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    is_container: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     doc_type: Mapped[DocType] = mapped_column(Enum(DocType, name="doc_type"), nullable=False)
     status: Mapped[DocumentStatus] = mapped_column(
         Enum(DocumentStatus, name="document_status"), nullable=False, default=DocumentStatus.pending
@@ -78,4 +86,3 @@ class DocumentChunk(TimestampMixin, Base):
     )
 
     document = relationship("Document", back_populates="chunks", lazy="selectin")
-

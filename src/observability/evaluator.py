@@ -40,7 +40,7 @@ def _expected_workspace_slugs(eval_case: EvalCase) -> list[str]:
     if expected_workspace_ids:
         return [str(item) for item in expected_workspace_ids]
     if eval_case.workspace_slug:
-        if eval_case.route.value in {"troubleshooting", "runbook_generation"}:
+        if eval_case.route.value in {"project_specific", "troubleshooting", "runbook_generation"}:
             return [eval_case.workspace_slug, "public_tech"]
         if eval_case.route.value == "out_of_scope":
             return []

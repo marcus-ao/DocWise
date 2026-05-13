@@ -14,6 +14,48 @@ $WebDir = Join-Path $Root "web"
 $WebNextDir = Join-Path $WebDir ".next"
 $Node = (Get-Command node).Source
 
+function Get-ListeningProcessId {
+    param(
+        [int]$Port
+    )
+
+    $connection = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($connection) {
+        return [int]$connection.OwningProcess
+    }
+
+    $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($connection) {
+        return [int]$connection.OwningProcess
+    }
+
+    return $null
+}
+
+function Assert-PortAvailable {
+    param(
+        [string]$Name,
+        [int]$Port,
+        [string]$PidPath
+    )
+
+    $listenerPid = Get-ListeningProcessId -Port $Port
+    if (-not $listenerPid) {
+        return
+    }
+
+    if (Test-Path -LiteralPath $PidPath) {
+        $registeredPid = [int](Get-Content -LiteralPath $PidPath -Raw)
+        if ($registeredPid -eq $listenerPid) {
+            throw "$Name already running with PID $listenerPid on port $Port"
+        }
+    }
+
+    throw "$Name cannot start because port $Port is already in use by PID $listenerPid. Stop the stale process before retrying."
+}
+
 if (-not (Test-Path -LiteralPath $Python)) {
     throw "Missing venv Python: $Python"
 }
@@ -42,6 +84,12 @@ function Start-DocWiseProcess {
     )
 
     $pidPath = Join-Path $RunDir "docwise-$Name.pid"
+    if ($Name -eq "api") {
+        Assert-PortAvailable -Name $Name -Port $ApiPort -PidPath $pidPath
+    }
+    elseif ($Name -eq "web") {
+        Assert-PortAvailable -Name $Name -Port 3000 -PidPath $pidPath
+    }
     if (Test-Path -LiteralPath $pidPath) {
         $oldPid = [int](Get-Content -LiteralPath $pidPath -Raw)
         if (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) {
@@ -61,6 +109,14 @@ function Start-DocWiseProcess {
         -RedirectStandardError $errLog `
         -PassThru `
         -WindowStyle Hidden
+    Start-Sleep -Milliseconds 1200
+    if ($process.HasExited) {
+        $stderrPreview = ""
+        if (Test-Path -LiteralPath $errLog) {
+            $stderrPreview = (Get-Content -LiteralPath $errLog -Tail 20 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+        }
+        throw "$Name failed to stay running after launch. Check $errLog.$([Environment]::NewLine)$stderrPreview"
+    }
     Set-Content -LiteralPath $pidPath -Value $process.Id -Encoding ascii
     Write-Host "Started $Name with PID $($process.Id)"
     Write-Host "  stdout: $outLog"

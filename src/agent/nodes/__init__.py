@@ -1,6 +1,7 @@
 ﻿"""Agent node exports."""
 from src.agent.nodes.answer_generator import answer_generator
 from src.agent.nodes.citation_verifier import citation_verifier
+from src.agent.nodes.context_loader import context_loader
 from src.agent.nodes.evidence_validator import evidence_validator
 from src.agent.nodes.hybrid_retriever import hybrid_retriever
 from src.agent.nodes.input_normalizer import input_normalizer
@@ -15,6 +16,7 @@ from src.agent.nodes.tool_planner import tool_planner
 __all__ = [
     "answer_generator",
     "citation_verifier",
+    "context_loader",
     "evidence_validator",
     "hybrid_retriever",
     "input_normalizer",
