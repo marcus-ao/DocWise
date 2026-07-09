@@ -114,13 +114,13 @@ $env:TEMP=$env:TMP
 validate_mock_data: ALL CHECKS PASSED
 validate_eval_cases: ALL CHECKS PASSED (20 retrieval + 30 qa)
 ruff: All checks passed!
-pytest: 174 passed
+pytest: 251 passed
 ```
 
 ## 当前已验证状态
 
 - Docker `postgres`、`redis`、`minio` healthy。
-- Alembic 当前版本为 `006 (head)`（M2 多轮字段：`agent_runs.turn_index/parent_run_id` + `queries.context_summary`）。
+- Alembic 当前版本为 `007 (head)`（包含 M2 多轮字段，以及 Phase B M8 的文档 provenance / container 字段）。
 - `scripts.seed_demo` 可创建/确认 MinIO bucket、workspace、demo docs、mock/eval 数据。
 - `scripts.ingest_docs --workspace public_tech --dir data\raw\airflow` 可将两份 Airflow demo 文档处理到 `ready`。
 - `--enqueue` 对已有文档可返回 succeeded job。

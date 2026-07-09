@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
@@ -229,6 +229,60 @@ def test_admin_bad_cases_filter_requires_non_empty_bad_case_types() -> None:
 
 
 @pytest.mark.asyncio
+async def test_require_admin_auth_rejects_missing_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(deps.settings, "admin_api_token", "settings-token")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await deps.require_admin_auth(None)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Authorization header required"
+
+
+@pytest.mark.asyncio
+async def test_require_admin_auth_rejects_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(deps.settings, "admin_api_token", "settings-token")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await deps.require_admin_auth("Bearer wrong-token")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Invalid admin token"
+
+
+@pytest.mark.asyncio
+async def test_require_admin_auth_rejects_default_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(deps.settings, "admin_api_token", "change-me")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await deps.require_admin_auth("Bearer change-me")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "Admin token is not configured"
+
+
+@pytest.mark.asyncio
+async def test_require_admin_auth_accepts_configured_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(deps.settings, "admin_api_token", "settings-token")
+
+    assert await deps.require_admin_auth("Bearer settings-token") is None
+
+
+@pytest.mark.asyncio
+async def test_real_app_business_routes_require_auth_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.api.app import app as real_app
+
+    monkeypatch.setattr(deps.settings, "auth_enabled", True)
+    monkeypatch.setattr(deps.settings, "admin_api_token", "settings-token")
+    transport = ASGITransport(app=real_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http_client:
+        response = await http_client.get("/api/v1/workspaces")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Authorization header required"}
+
+
+@pytest.mark.asyncio
 async def test_upload_document_returns_contract_response(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     document_id = uuid4()
     job_id = uuid4()
@@ -260,6 +314,41 @@ async def test_upload_document_duplicate_without_job_returns_conflict(
         files={"file": ("guide.md", b"# Guide", "text/markdown")},
     )
     assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_upload_document_rejects_unsupported_extension(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_upload_job = AsyncMock()
+    monkeypatch.setattr(documents, "_create_upload_job", create_upload_job)
+
+    response = await client.post(
+        "/api/v1/documents/upload",
+        data={"workspace_slug": "public_tech"},
+        files={"file": ("payload.exe", b"not a document", "application/octet-stream")},
+    )
+
+    assert response.status_code == 415
+    create_upload_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_upload_document_rejects_file_over_configured_limit(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_upload_job = AsyncMock()
+    monkeypatch.setattr(documents, "_create_upload_job", create_upload_job)
+    monkeypatch.setattr(documents.settings, "max_upload_size_mb", 0)
+
+    response = await client.post(
+        "/api/v1/documents/upload",
+        data={"workspace_slug": "public_tech"},
+        files={"file": ("guide.md", b"# Guide", "text/markdown")},
+    )
+
+    assert response.status_code == 413
+    create_upload_job.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -549,7 +638,15 @@ async def test_answer_generator_chain_end_emits_answer_sse() -> None:
 
     assert mapped is not None
     assert mapped.startswith("event: answer\n")
-    assert '"content": "Final answer [1]"' in mapped
+    payloads = _sse_payloads(mapped, "answer")
+    assert payloads == [
+        {
+            "content": "Final answer [1]",
+            "confidence_score": 0.8,
+            "refused": False,
+            "refusal_reason": None,
+        }
+    ]
 
 
 def test_troubleshooting_route_invokes_tools_once_even_with_sufficient_evidence() -> None:
@@ -906,22 +1003,31 @@ async def test_chat_nonstream_ignores_conversation_id(client: AsyncClient, monke
 async def test_cancel_chat_run_sets_cancel_event(monkeypatch: pytest.MonkeyPatch) -> None:
     query_id = uuid4()
     run_id = uuid4()
-    run = SimpleNamespace(id=run_id, query_id=query_id)
+    run = SimpleNamespace(id=run_id, query_id=query_id, status=SimpleNamespace(value="running"), error_message=None)
 
     class FakeCancelDb:
+        def __init__(self) -> None:
+            self.commit_count = 0
+
         async def get(self, model: object, key: object) -> object | None:
             if key == run_id:
                 return run
             return None
 
+        async def commit(self) -> None:
+            self.commit_count += 1
+
+    db = FakeCancelDb()
     cancel_event = asyncio.Event()
     monkeypatch.setitem(chat.RUN_CANCEL_EVENTS, str(run_id), cancel_event)
 
-    response = await chat.cancel_chat_run(FakeCancelDb(), run_id)
+    response = await chat.cancel_chat_run(db, run_id)
 
     assert cancel_event.is_set() is True
     assert response.query_id == query_id
     assert response.status == "accepted"
+    assert run.error_message == chat.CANCELLED_RUN_MARKER
+    assert db.commit_count == 1
 
 
 @pytest.mark.asyncio
@@ -942,6 +1048,128 @@ async def test_persist_partial_completion_prefers_partial_answer(monkeypatch: py
 
     assert recorded["answer"] == "partial answer"
     assert recorded["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_surfaces_cancelled_status_from_marker() -> None:
+    query_id = uuid4()
+    run_id = uuid4()
+    created_at = datetime.now(UTC)
+    query = SimpleNamespace(
+        id=query_id,
+        original_query="How do I stop a run?",
+        answer="partial answer",
+        workspace_slug="public_tech",
+        created_at=created_at,
+    )
+    run = SimpleNamespace(
+        id=run_id,
+        query_id=query_id,
+        original_query="How do I stop a run?",
+        answer="partial answer",
+        final_citations=[],
+        created_at=created_at,
+        ended_at=created_at,
+        status=SimpleNamespace(value="succeeded"),
+        error_message=chat.CANCELLED_RUN_MARKER,
+    )
+    workspace = SimpleNamespace(id=uuid4(), slug="public_tech")
+
+    class FakeConversationDb:
+        async def get(self, model: object, key: object) -> object | None:
+            if key == query_id:
+                return query
+            return None
+
+        async def scalar(self, stmt: object) -> object | None:
+            target = getattr(stmt, "column_descriptions", [{}])[0].get("entity")
+            if target is chat.Workspace:
+                return workspace
+            if target is chat.AgentRun:
+                return run
+            return None
+
+        async def scalars(self, stmt: object) -> object:
+            text = str(stmt)
+
+            class _Rows:
+                def __init__(self, items: list[object]) -> None:
+                    self._items = items
+
+                def all(self) -> list[object]:
+                    return list(self._items)
+
+            if "FROM agent_runs" in text:
+                return _Rows([run])
+            return _Rows([])
+
+    response = await chat.get_conversation(FakeConversationDb(), query_id)
+
+    assert response.status == "cancelled"
+    assert response.run_id == run_id
+    assert response.messages[-1].role == "assistant"
+    assert response.messages[-1].content == "partial answer"
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_surfaces_stale_running_run_as_cancelled(monkeypatch: pytest.MonkeyPatch) -> None:
+    query_id = uuid4()
+    run_id = uuid4()
+    created_at = datetime.now(UTC)
+    query = SimpleNamespace(
+        id=query_id,
+        original_query="Airflow scheduler 的定时任务怎么配？",
+        answer="partial answer",
+        workspace_slug="public_tech",
+        created_at=created_at,
+    )
+    run = SimpleNamespace(
+        id=run_id,
+        query_id=query_id,
+        original_query="Airflow scheduler 的定时任务怎么配？",
+        answer="partial answer",
+        final_citations=[],
+        created_at=created_at,
+        ended_at=None,
+        status=SimpleNamespace(value="running"),
+        error_message=None,
+    )
+    workspace = SimpleNamespace(id=uuid4(), slug="public_tech")
+
+    class FakeConversationDb:
+        async def get(self, model: object, key: object) -> object | None:
+            if key == query_id:
+                return query
+            return None
+
+        async def scalar(self, stmt: object) -> object | None:
+            target = getattr(stmt, "column_descriptions", [{}])[0].get("entity")
+            if target is chat.Workspace:
+                return workspace
+            if target is chat.AgentRun:
+                return run
+            return None
+
+        async def scalars(self, stmt: object) -> object:
+            text = str(stmt)
+
+            class _Rows:
+                def __init__(self, items: list[object]) -> None:
+                    self._items = items
+
+                def all(self) -> list[object]:
+                    return list(self._items)
+
+            if "FROM agent_runs" in text:
+                return _Rows([run])
+            return _Rows([])
+
+    monkeypatch.delitem(chat.RUN_CANCEL_EVENTS, str(run_id), raising=False)
+
+    response = await chat.get_conversation(FakeConversationDb(), query_id)
+
+    assert response.status == "cancelled"
+    assert response.run_id == run_id
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,7 @@ interface MessageBubbleProps {
     citations?: Citation[]
   }
   isStreamingPending?: boolean
+  runStatus?: string | null
 }
 
 function extractTextContent(node: React.ReactNode): string {
@@ -101,9 +102,10 @@ function ThinkingDots() {
   )
 }
 
-export function MessageBubble({ message, isStreamingPending = false }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreamingPending = false, runStatus = null }: MessageBubbleProps) {
   const isUser = message.role === "user"
-  const isPendingAssistant = !isUser && isStreamingPending && !message.content.trim()
+  const isCancelledAssistant = !isUser && runStatus === "cancelled"
+  const isPendingAssistant = !isUser && isStreamingPending && !message.content.trim() && !isCancelledAssistant
   const isAssistantStreaming = !isUser && isStreamingPending
   const [copied, setCopied] = React.useState(false)
   const [feedbackMark, setFeedbackMark] = React.useState<"up" | "down" | null>(null)
@@ -137,6 +139,11 @@ export function MessageBubble({ message, isStreamingPending = false }: MessageBu
       <div className={cn("flex max-w-[85%] flex-col gap-2", isUser ? "items-end" : "items-start")}>
         {isPendingAssistant ? (
           <ThinkingDots />
+        ) : isCancelledAssistant && !message.content.trim() ? (
+          <div className="inline-flex items-center gap-2 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-2.5 text-sm font-medium text-amber-600 shadow-sm dark:text-amber-300">
+            <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+            本轮回复已中止
+          </div>
         ) : (
           <div
             className={cn(
@@ -224,6 +231,13 @@ export function MessageBubble({ message, isStreamingPending = false }: MessageBu
             )}
           </div>
         )}
+
+        {!isUser && isCancelledAssistant && message.content.trim() ? (
+          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold tracking-wide text-amber-600 dark:text-amber-300">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+            已中止
+          </div>
+        ) : null}
 
         {isUser ? (
           <div className="relative flex items-center gap-1.5 self-start pl-1 text-muted-foreground/60 opacity-0 transition-opacity duration-300 group-hover/bubble:opacity-100">

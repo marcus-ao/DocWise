@@ -5,6 +5,7 @@ import argparse
 import fnmatch
 import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from scripts.manifest_utils import (
     REPO_ROOT,
     append_manifest_error,
     load_manifest,
+    mutate_manifest,
     now_iso,
     update_manifest_entry,
 )
@@ -32,14 +34,14 @@ LICENSE_MATCH_PATTERNS: dict[str, tuple[str, ...]] = {
 SOURCES: list[dict[str, Any]] = [
     {
         "name": "openclaw",
-        "repo_url": "",  # 用户确认最终仓库地址
+        "repo_url": "https://github.com/openclaw/openclaw.git",
         "branch": "main",
         "sparse_paths": ["docs/", "README.md", "README_*.md"],
         "file_filter": r"\.md$",
         "exclude_patterns": [r"_partials/", r"archive/"],
         "max_files": 30,
         "workspace_slug": "project_openclaw",
-        "license": "Apache-2.0",
+        "license": "MIT",
     },
     {
         "name": "affine",
@@ -69,6 +71,17 @@ SOURCES: list[dict[str, Any]] = [
 
 def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=True, capture_output=True, text=True)
+
+
+def _remove_readonly(func, path: str, _exc_info: object) -> None:
+    Path(path).chmod(stat.S_IWRITE)
+    func(path)
+
+
+def _safe_rmtree(path: Path) -> None:
+    if not path.exists():
+        return
+    shutil.rmtree(path, onerror=_remove_readonly)
 
 
 def _source_index() -> dict[str, dict[str, Any]]:
@@ -138,7 +151,7 @@ def _ensure_checkout(source: dict[str, Any], tmp_dir: Path) -> str:
     else:
         tmp_dir.parent.mkdir(parents=True, exist_ok=True)
         if tmp_dir.exists():
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            _safe_rmtree(tmp_dir)
         _run(
             [
                 "git",
@@ -182,6 +195,7 @@ def _detect_repo_license(tmp_dir: Path, source: dict[str, Any]) -> tuple[str, bo
 def _collect_files(tmp_dir: Path, source: dict[str, Any]) -> list[Path]:
     include_re = re.compile(str(source["file_filter"]), re.IGNORECASE)
     exclude_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in source.get("exclude_patterns", [])]
+    directories, root_globs = _split_sparse_paths(list(source["sparse_paths"]))
     files: list[Path] = []
     for path in tmp_dir.rglob("*"):
         if not path.is_file():
@@ -193,6 +207,10 @@ def _collect_files(tmp_dir: Path, source: dict[str, Any]) -> list[Path]:
             continue
         if any(pattern.search(relative) for pattern in exclude_patterns):
             continue
+        in_selected_directory = any(relative.startswith(f"{directory}/") for directory in directories)
+        is_selected_root_match = "/" not in relative and any(fnmatch.fnmatch(relative, pattern) for pattern in root_globs)
+        if not in_selected_directory and not is_selected_root_match:
+            continue
         files.append(path)
     files.sort(key=lambda item: item.relative_to(tmp_dir).as_posix())
     return files[: int(source["max_files"])]
@@ -200,7 +218,7 @@ def _collect_files(tmp_dir: Path, source: dict[str, Any]) -> list[Path]:
 
 def _materialize_files(files: list[Path], tmp_dir: Path, destination: Path) -> tuple[int, int]:
     staging = destination.parent / f".{destination.name}.staging"
-    shutil.rmtree(staging, ignore_errors=True)
+    _safe_rmtree(staging)
     staging.mkdir(parents=True, exist_ok=True)
     total_bytes = 0
     for file_path in files:
@@ -209,11 +227,23 @@ def _materialize_files(files: list[Path], tmp_dir: Path, destination: Path) -> t
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(file_path, target)
         total_bytes += file_path.stat().st_size
-    shutil.rmtree(destination, ignore_errors=True)
+    _safe_rmtree(destination)
     if destination.exists():
         destination.unlink()
-    staging.replace(destination)
+    try:
+        staging.replace(destination)
+    except PermissionError:
+        if destination.exists():
+            _safe_rmtree(destination)
+        shutil.copytree(staging, destination)
+        _safe_rmtree(staging)
     return len(files), total_bytes
+
+
+def _existing_materialized_file_count(destination: Path, manifest_entry: dict[str, Any]) -> int:
+    if destination.exists():
+        return sum(1 for path in destination.rglob("*") if path.is_file())
+    return int(manifest_entry.get("file_count", 0) or 0)
 
 
 def _source_entry(
@@ -246,6 +276,27 @@ def _update_auto_source(name: str, entry: dict[str, Any]) -> None:
     update_manifest_entry("auto_sources", name, entry, MANIFEST_PATH)
 
 
+def _clear_manifest_errors(source_name: str, *error_types: str) -> None:
+    error_type_set = {error_type for error_type in error_types if error_type}
+
+    def _mutate(manifest: dict[str, Any]) -> None:
+        errors = manifest.get("errors", [])
+        if not isinstance(errors, list):
+            manifest["errors"] = []
+            return
+        manifest["errors"] = [
+            error
+            for error in errors
+            if not (
+                isinstance(error, dict)
+                and error.get("source") == source_name
+                and error.get("type") in error_type_set
+            )
+        ]
+
+    mutate_manifest(_mutate, MANIFEST_PATH)
+
+
 def download_source(source: dict[str, Any], *, force: bool, dry_run: bool) -> dict[str, Any]:
     name = str(source["name"])
     repo_url = str(source["repo_url"])
@@ -265,13 +316,26 @@ def download_source(source: dict[str, Any], *, force: bool, dry_run: bool) -> di
         )
         return {"source": name, "status": "skipped", "reason": "repo_url_missing"}
 
+    _clear_manifest_errors(name, "repo_url_missing")
     remote_sha = _ls_remote_head(repo_url, str(source["branch"]))
     if dry_run and not force and remote_sha == existing.get("commit_sha"):
         print(f"{name}: skipped (commit_sha unchanged)", flush=True)
         return {"source": name, "status": "skipped", "commit_sha": remote_sha}
     if not dry_run and not force and remote_sha == existing.get("commit_sha") and current_materialized:
-        print(f"{name}: skipped (commit_sha unchanged)", flush=True)
-        return {"source": name, "status": "skipped", "commit_sha": remote_sha}
+        file_count = _existing_materialized_file_count(destination, existing if isinstance(existing, dict) else {})
+        _clear_manifest_errors(name, "download_failed")
+        print(
+            f"{name}: skipped (commit_sha unchanged, reusing {destination.as_posix()} files={file_count}; "
+            "tmp checkout not recreated)",
+            flush=True,
+        )
+        return {
+            "source": name,
+            "status": "skipped",
+            "commit_sha": remote_sha,
+            "materialized_path": destination.as_posix(),
+            "file_count": file_count,
+        }
 
     if dry_run:
         entry = _source_entry(
@@ -315,6 +379,9 @@ def download_source(source: dict[str, Any], *, force: bool, dry_run: bool) -> di
         license_verified=license_verified,
     )
     _update_auto_source(name, entry)
+    _clear_manifest_errors(name, "download_failed", "repo_url_missing")
+    if license_verified:
+        _clear_manifest_errors(name, "license_mismatch")
     print(f"{name}: downloaded files={file_count} commit_sha={commit_sha}", flush=True)
     return {"source": name, "status": "downloaded", "commit_sha": commit_sha, "file_count": file_count}
 
@@ -351,7 +418,7 @@ def main() -> None:
     sources = parse_source_selection(args.source)
     results = download_sources(sources, force=args.force, dry_run=args.dry_run)
     if args.clean_tmp:
-        shutil.rmtree(REPO_TMP_ROOT, ignore_errors=True)
+        _safe_rmtree(REPO_TMP_ROOT)
 
     counts: dict[str, int] = {}
     for result in results:

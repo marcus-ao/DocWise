@@ -14,7 +14,7 @@ DocWise 的目标是一个企业级开发者知识工作流 Agent：
 | --- | --- |
 | API | FastAPI，`src/api/app.py` 注册 chat、agent、documents、eval、traces、lab、workspaces、admin 路由 |
 | Worker | arq worker，`src/tasks/worker.py` 暴露 ingest、reindex、eval job |
-| DB | PostgreSQL + pgvector + tsvector，SQLAlchemy async，Alembic 当前 head 为 `006` |
+| DB | PostgreSQL + pgvector + tsvector，SQLAlchemy async，Alembic 当前 head 为 `007` |
 | Cache/Queue | Redis，用于 arq、embedding cache 和入库锁 |
 | Object Storage | MinIO，默认 bucket `docwise-documents`，seed 和 ingestion 会确保 bucket 存在 |
 | LLM | DeepSeek-compatible chat wrapper，区分 fast/pro 模型 |
@@ -153,13 +153,13 @@ START
 validate_mock_data: ALL CHECKS PASSED
 validate_eval_cases: ALL CHECKS PASSED (20 retrieval + 30 qa)
 ruff: All checks passed!
-pytest: 174 passed
+pytest: 251 passed
 ```
 
 真实 smoke 已验证过的链路：
 
 - Docker `postgres`、`redis`、`minio` healthy
-- Alembic 到 `006 (head)`（Phase A M2 多轮字段已落地：`agent_runs.turn_index/parent_run_id` + `queries.context_summary`）
+- Alembic 到 `007 (head)`（Phase A M2 多轮字段 + Phase B M8 文档 provenance/container 字段已落地）
 - `scripts.seed_demo` 完成
 - `scripts.ingest_docs --workspace public_tech --dir data\raw\airflow` 两份 demo 文档到 `ready`
 - `--enqueue` 对已有文档返回 succeeded job
@@ -228,7 +228,7 @@ V1 形态收敛为「公开技术文档知识库驱动的内部 RAG + 运维辅�
 
 | 工作包 | 当前主要路径 | 当前状态 | 下一步关注 |
 | --- | --- | --- | --- |
-| WP-01 Infra/Foundation | `pyproject.toml`, Dockerfile, Compose, Alembic, `src/config/`, `src/db/`, `src/models/`, `src/schemas/` | 已恢复到可运行，本地 infra health、Alembic head=006、seed 基线可用；Phase A M2 多轮字段已落地（`agent_runs.turn_index/parent_run_id` + `queries.context_summary`） | Migration 007（Phase B M8：`documents.provenance` + `parent_document_id` + `is_container` + `DocumentStatus.container`）、Migration 008（Phase C M5：`agent_runs.grounding_report_json`）、前端 Docker 集成、CI workflow |
+| WP-01 Infra/Foundation | `pyproject.toml`, Dockerfile, Compose, Alembic, `src/config/`, `src/db/`, `src/models/`, `src/schemas/` | 已恢复到可运行，本地 infra health、Alembic head=007、seed 基线可用；Phase A M2 多轮字段与 Phase B M8 文档 provenance/container 字段已落地 | Migration 008（Phase C M5：`agent_runs.grounding_report_json`）、前端 Docker 集成、CI workflow |
 | WP-02 LLM/Document/Tasks | `src/llm/`, `src/document/`, `src/tasks/`, `scripts/ingest_docs.py`, `data/raw/` | chunker、ingestion、MinIO bucket、embedding、worker 路径已恢复 | RST parser、真实文档批量入库、大文件处理 |
 | WP-03 Retrieval/Agent | `src/retrieval/`, `src/agent/` | hybrid retrieval、rerank fallback、LangGraph 12 节点主链路完整；`POST /lab/compare` 已支持 4 种策略（`vector_only / keyword_only / hybrid / hybrid_rerank`）+ `rrf_k / rerank_top_k` 参数；SSE reasoning 事件已接入 | `context_loader` 节点、多轮对话摘要注入 `query_rewriter`、HyDE / Query Decomposition 实验 |
 | WP-04 API/Frontend | `src/api/`, `web/` | FastAPI 路由完整（chat/agent/documents/eval/traces/lab/workspaces/admin）；Next.js 5 核心页 + History/Archive/Home 全部上线；Lab 页支持策略多选 + 参数滑块 + 重叠度热力图 + 耗时对比 | 多轮对话前端、反馈持久化、文件附件 |
@@ -245,11 +245,11 @@ V1 形态收敛为「公开技术文档知识库驱动的内部 RAG + 运维辅�
 ### 当前验收清单
 
 - [x] Docker `postgres` / `redis` / `minio` healthy。
-- [x] Alembic 当前版本为 `006 (head)`（Phase A M2 已落地）。
+- [x] Alembic 当前版本为 `007 (head)`（Phase A M2 + Phase B M8 已落地）。
 - [x] `scripts.seed_demo` 成功并创建/确认 MinIO bucket。
 - [x] `data/mock/` 与 `data/eval/` validation 通过。
 - [x] `ruff check src tests scripts alembic` 通过。
-- [x] `pytest -q` 当前为 `174 passed`。
+- [x] `pytest -q` 当前为 `251 passed`。
 - [x] `scripts.ingest_docs --workspace public_tech --dir data\raw\airflow` 同步入库到 ready。
 - [x] `scripts.ingest_docs --workspace public_tech --dir data\raw\airflow --enqueue` 返回已有 succeeded job。
 - [ ] 真实文档 200+ 入库，hit_rate@5 > 75%。

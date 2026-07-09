@@ -1,10 +1,11 @@
 """FastAPI application factory."""
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from minio import Minio
 
+from src.api.deps import optional_admin_auth
 from src.api.routers import admin, agent, chat, documents, eval, lab, traces, workspaces
 from src.config.settings import settings
 from src.db.redis import get_redis_client
@@ -20,13 +21,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(chat.router, prefix=settings.api_prefix)
-app.include_router(agent.router, prefix=settings.api_prefix)
-app.include_router(documents.router, prefix=settings.api_prefix)
-app.include_router(eval.router, prefix=settings.api_prefix)
-app.include_router(traces.router, prefix=settings.api_prefix)
-app.include_router(lab.router, prefix=settings.api_prefix)
-app.include_router(workspaces.router, prefix=settings.api_prefix)
+protected_api = [Depends(optional_admin_auth)]
+
+app.include_router(chat.router, prefix=settings.api_prefix, dependencies=protected_api)
+app.include_router(agent.router, prefix=settings.api_prefix, dependencies=protected_api)
+app.include_router(documents.router, prefix=settings.api_prefix, dependencies=protected_api)
+app.include_router(eval.router, prefix=settings.api_prefix, dependencies=protected_api)
+app.include_router(traces.router, prefix=settings.api_prefix, dependencies=protected_api)
+app.include_router(lab.router, prefix=settings.api_prefix, dependencies=protected_api)
+app.include_router(workspaces.router, prefix=settings.api_prefix, dependencies=protected_api)
 app.include_router(admin.router, prefix=settings.api_prefix)
 
 

@@ -127,6 +127,29 @@ def _reset_call_count_for_testing() -> None:
     _MINERU_CALL_STATE["count"] = 0
 
 
+def _mb_to_bytes(value: int) -> int:
+    return max(0, int(value)) * 1024 * 1024
+
+
+async def _get_limited_content(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    max_bytes: int,
+    label: str,
+) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    async with client.stream("GET", url) as response:
+        response.raise_for_status()
+        async for chunk in response.aiter_bytes():
+            total += len(chunk)
+            if total > max_bytes:
+                raise NonRetryableError(f"MinerU {label} exceeded configured size limit")
+            chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def _fetch_markdown_via_mineru(
     file_bytes: bytes,
     file_name: str,
@@ -195,9 +218,13 @@ async def _fetch_markdown_via_mineru(
                     full_zip_url = str(result.get("full_zip_url") or "").strip()
                     if not full_zip_url:
                         raise NonRetryableError("MinerU done result did not include full_zip_url")
-                    result_response = await client.get(full_zip_url)
-                    result_response.raise_for_status()
-                    return _extract_markdown_from_zip(result_response.content)
+                    result_zip = await _get_limited_content(
+                        client,
+                        full_zip_url,
+                        max_bytes=_mb_to_bytes(settings.mineru_max_result_zip_mb),
+                        label="result zip",
+                    )
+                    return _extract_markdown_from_zip(result_zip)
                 if status in {"failed", "error", "cancelled"}:
                     detail = str(result.get("err_msg") or payload.get("msg") or f"state={status}")
                     raise NonRetryableError(f"MinerU task failed: {detail}")
@@ -269,7 +296,14 @@ def _extract_markdown_from_zip(zip_bytes: bytes) -> bytes:
         member = preferred or fallback
         if not member:
             raise NonRetryableError("MinerU result zip did not include full.md")
-        return archive.read(member)
+        member_info = archive.getinfo(member)
+        max_markdown_bytes = _mb_to_bytes(settings.mineru_max_result_markdown_mb)
+        if member_info.file_size > max_markdown_bytes:
+            raise NonRetryableError("MinerU markdown result exceeded configured size limit")
+        markdown_bytes = archive.read(member)
+        if len(markdown_bytes) > max_markdown_bytes:
+            raise NonRetryableError("MinerU markdown result exceeded configured size limit")
+        return markdown_bytes
 
 
 async def _convert_via_local_fallback(

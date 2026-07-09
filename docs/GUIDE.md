@@ -133,7 +133,7 @@ docker compose up -d postgres redis minio
 当前恢复基线的 head 为：
 
 ```text
-006 (head)
+007 (head)
 ```
 
 初始化 demo：
@@ -182,7 +182,7 @@ $env:TEMP=$env:TMP
 validate_mock_data: ALL CHECKS PASSED
 validate_eval_cases: ALL CHECKS PASSED (20 retrieval + 30 qa)
 ruff: All checks passed!
-pytest: 174 passed
+pytest: 251 passed
 ```
 
 如果 pytest 只出现 `AsyncMock ... was never awaited` warning，但结果为 passed，目前不影响功能验收。
@@ -396,12 +396,12 @@ curl.exe "http://127.0.0.1:8000/api/v1/eval/results"
 Admin：
 
 ```powershell
-curl.exe "http://127.0.0.1:8000/api/v1/admin/stats"
-curl.exe "http://127.0.0.1:8000/api/v1/admin/index-status"
-curl.exe "http://127.0.0.1:8000/api/v1/admin/bad-cases"
+curl.exe -H "Authorization: Bearer <ADMIN_API_TOKEN>" "http://127.0.0.1:8000/api/v1/admin/stats"
+curl.exe -H "Authorization: Bearer <ADMIN_API_TOKEN>" "http://127.0.0.1:8000/api/v1/admin/index-status"
+curl.exe -H "Authorization: Bearer <ADMIN_API_TOKEN>" "http://127.0.0.1:8000/api/v1/admin/bad-cases"
 ```
 
-如果启用 `AUTH_ENABLED=true`，admin 端点需要：
+Admin 端点始终需要：
 
 ```powershell
 curl.exe -H "Authorization: Bearer <ADMIN_API_TOKEN>" "http://127.0.0.1:8000/api/v1/admin/stats"
@@ -479,7 +479,7 @@ Get-Content logs\worker\docwise-worker.err.log -Tail 80
 先确认有 active chunks：
 
 ```powershell
-curl.exe "http://127.0.0.1:8000/api/v1/admin/index-status"
+curl.exe -H "Authorization: Bearer <ADMIN_API_TOKEN>" "http://127.0.0.1:8000/api/v1/admin/index-status"
 ```
 
 如果 `active_chunks=0`，先完成文档入库。

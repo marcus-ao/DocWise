@@ -12,6 +12,7 @@ _COMPILED_PATTERNS = {
     key: re.compile(pattern)
     for key, pattern in ENTITY_PATTERNS.items()
 }
+_INTERNAL_RUNTIME_ENTITY_RE = re.compile(r"^(?:project_[a-z0-9_]+|public_tech|mock_ops)$")
 
 
 def normalize_entity(value: str) -> str:
@@ -30,7 +31,11 @@ def extract_regex_entities(query: str) -> list[str]:
 
 def merge_critical_entities(query: str, key_entities: list[str]) -> list[str]:
     merged = extract_regex_entities(query)
-    merged.extend(item for item in key_entities if isinstance(item, str) and item.strip())
+    merged.extend(
+        item
+        for item in key_entities
+        if isinstance(item, str) and item.strip() and not _is_internal_runtime_entity(item)
+    )
     return _dedupe(merged)
 
 
@@ -54,3 +59,8 @@ def _dedupe(items: list[str]) -> list[str]:
         seen.add(key)
         deduped.append(item.strip())
     return deduped
+
+
+def _is_internal_runtime_entity(value: str) -> bool:
+    normalized = value.strip().lower()
+    return bool(_INTERNAL_RUNTIME_ENTITY_RE.fullmatch(normalized))

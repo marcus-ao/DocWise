@@ -1,6 +1,7 @@
 """Document ingestion and management API routes."""
 from __future__ import annotations
 
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -29,6 +30,7 @@ from src.schemas.document import (
 from src.schemas.frontend import DocumentChunkItem, DocumentChunksResponse
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+UPLOAD_READ_CHUNK_SIZE = 1024 * 1024
 
 
 def _minio_client() -> Minio:
@@ -44,6 +46,39 @@ async def _create_upload_job(**kwargs: object) -> dict:
     return await submit_document_for_ingestion(**kwargs)
 
 
+def _max_upload_bytes() -> int:
+    return max(0, int(settings.max_upload_size_mb)) * 1024 * 1024
+
+
+def _validate_upload_metadata(file: UploadFile) -> None:
+    file_name = file.filename or ""
+    suffix = Path(file_name).suffix.lower().lstrip(".")
+    if suffix not in settings.allowed_file_type_list:
+        allowed = ", ".join(settings.allowed_file_type_list)
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported file type. Allowed extensions: {allowed}",
+        )
+
+
+async def _read_upload_limited(file: UploadFile) -> bytes:
+    max_bytes = _max_upload_bytes()
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(UPLOAD_READ_CHUNK_SIZE)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=f"Upload exceeds max_upload_size_mb={settings.max_upload_size_mb}",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.post("/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_document(
     db: DbSession,
@@ -51,7 +86,8 @@ async def upload_document(
     workspace_slug: str = Form("public_tech"),
     enqueue: bool = Form(True),
 ) -> DocumentUploadResponse:
-    file_bytes = await file.read()
+    _validate_upload_metadata(file)
+    file_bytes = await _read_upload_limited(file)
     redis = get_redis_client()
     try:
         result = await _create_upload_job(

@@ -9,10 +9,10 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from src.agent import conversation
-from src.db import session as db_session_module
 from src.agent.nodes.query_router import query_router
 from src.agent.rewriter import RewriterResult
 from src.agent.state import create_initial_state
+from src.db import session as db_session_module
 from src.models.agent import AgentRun, ToolCall
 from src.models.base import AgentRunStatus, ToolCallStatus
 from src.models.query import Query
@@ -363,3 +363,33 @@ async def test_query_rewriter_uses_route_and_history(monkeypatch: pytest.MonkeyP
     assert captured["recent_turns"]
     assert captured["context_summary"] == state["context_summary"]
     assert result["rewritten_query"] == "Airflow task timeout troubleshooting"
+
+
+@pytest.mark.asyncio
+async def test_query_rewriter_does_not_append_selected_project_slug_to_key_entities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = create_initial_state("Airflow ECONNRESET 错误怎么排查？", trace_id="rewriter-project-slug")
+    state["route"] = "troubleshooting"
+    state["key_entities"] = ["ECONNRESET"]
+    state["selected_project"] = "project_airflow"
+
+    captured: dict[str, object] = {}
+
+    async def fake_rewrite_query(**kwargs: object) -> RewriterResult:
+        captured.update(kwargs)
+        return RewriterResult(
+            original_query=str(kwargs["original_query"]),
+            rewritten_query="Airflow ECONNRESET 错误排查方法",
+            effective_query="Airflow ECONNRESET 错误排查方法",
+            route=str(kwargs["route"]),
+            history_used=False,
+            fallback_reason="",
+        )
+
+    monkeypatch.setattr(query_rewriter_module, "rewrite_query", fake_rewrite_query)
+    monkeypatch.setattr(query_rewriter_module, "write_trace_event", AsyncMock())
+
+    await query_rewriter_module.query_rewriter(state)
+
+    assert captured["key_entities"] == ["ECONNRESET"]

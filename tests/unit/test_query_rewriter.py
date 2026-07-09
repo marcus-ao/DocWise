@@ -80,6 +80,24 @@ async def test_rewriter_missing_critical_entities_falls_back_to_original(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_rewriter_ignores_internal_workspace_slug_in_key_entities(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "src.agent.rewriter.runtime.chat_completion",
+        AsyncMock(return_value={"content": "Airflow ECONNRESET 错误排查方法"}),
+    )
+
+    result = await rewrite_query(
+        original_query="Airflow ECONNRESET 错误怎么排查？",
+        route="troubleshooting",
+        key_entities=["project_airflow"],
+    )
+
+    assert result.fallback_reason == ""
+    assert result.effective_query == "Airflow ECONNRESET 错误排查方法"
+    assert result.missing_entities == []
+
+
+@pytest.mark.asyncio
 async def test_rewriter_unchanged_passthrough_uses_original(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "src.agent.rewriter.runtime.chat_completion",

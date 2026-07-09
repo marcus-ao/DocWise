@@ -21,8 +21,7 @@ async def query_rewriter(state: AgentState, config: RunnableConfig | None = None
     result = await rewrite_query(
         original_query=original,
         route=route,
-        key_entities=[str(item) for item in state.get("key_entities") or []]
-        + ([str(state.get("selected_project"))] if state.get("selected_project") else []),
+        key_entities=[str(item) for item in state.get("key_entities") or []],
         recent_turns=state.get("recent_turns") or None,
         context_summary=state.get("context_summary"),
     )

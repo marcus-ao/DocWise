@@ -12,6 +12,8 @@ from src.config.settings import settings
 from src.db.redis import get_redis_client
 from src.db.session import get_session
 
+INSECURE_ADMIN_TOKENS = {"", "change-me"}
+
 
 async def get_db():
     async for session in get_session():
@@ -35,6 +37,11 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
 async def require_admin_auth(authorization: str | None = Header(default=None)) -> None:
+    if settings.admin_api_token.strip() in INSECURE_ADMIN_TOKENS:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin token is not configured",
+        )
     if not authorization:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authorization header required")
     scheme, _, token = authorization.partition(" ")

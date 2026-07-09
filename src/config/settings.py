@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     mineru_request_timeout: float = 180.0
     mineru_poll_interval: float = 3.0
     mineru_daily_call_budget: int = 800
+    mineru_max_result_zip_mb: int = 100
+    mineru_max_result_markdown_mb: int = 50
     normalizer_cache_dir: str = "data/processed/normalized"
     normalizer_enable_fallback: bool = True
 

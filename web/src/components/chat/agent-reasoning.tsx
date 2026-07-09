@@ -50,7 +50,7 @@ export function AgentReasoning({ steps }: AgentReasoningProps) {
   }, [])
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       <div className="h-16 shrink-0 border-b border-border px-4">
         <div className="flex h-full items-center justify-between gap-3">
           <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -61,8 +61,8 @@ export function AgentReasoning({ steps }: AgentReasoningProps) {
         </div>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1 p-4">
-        <div className="relative space-y-4 before:absolute before:inset-y-0 before:left-[11px] before:w-px before:bg-border">
+      <ScrollArea className="min-h-0 min-w-0 flex-1 p-4 pr-3">
+        <div className="relative space-y-4 pr-1 before:absolute before:inset-y-0 before:left-[11px] before:w-px before:bg-border">
           {steps.length === 0 && (
             <div className="rounded-2xl border border-dashed border-border bg-card/70 px-4 py-5 text-sm text-muted-foreground shadow-sm">
               正在等待新的推理节点...
@@ -80,7 +80,7 @@ export function AgentReasoning({ steps }: AgentReasoningProps) {
                 initial={{ opacity: 0, x: 15, scale: 0.98 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
                 transition={{ type: "spring", stiffness: 400, damping: 30, delay: index * 0.04 }}
-                className="relative flex items-start gap-3"
+                className="relative flex min-w-0 items-start gap-3"
               >
                 <div className="z-10 mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-card shadow-sm">
                   {isActive ? (
@@ -99,15 +99,17 @@ export function AgentReasoning({ steps }: AgentReasoningProps) {
                   )}
                 </div>
 
-                <div className="flex-1 rounded-xl border border-border bg-card p-3 shadow-sm transition-colors hover:bg-muted/20">
-                  <div className="mb-1 flex items-center gap-2">
+                <div className="min-w-0 flex-1 rounded-xl border border-border bg-card p-3 shadow-sm transition-colors hover:bg-muted/20">
+                  <div className="mb-1 flex min-w-0 items-center gap-2">
                     <StepIcon size={14} className="text-foreground/80" />
-                    <span className="text-sm font-medium text-foreground">{step.title}</span>
-                    <span className="ml-auto text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <span className="min-w-0 flex-1 break-words text-sm font-medium text-foreground">{step.title}</span>
+                    <span className="ml-auto shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
                       {step.status === "active" ? "进行中" : step.status === "error" ? "异常" : "完成"}
                     </span>
                   </div>
-                  <p className="text-[13px] leading-6 text-foreground/90">{step.detail}</p>
+                  <p className="break-words text-[13px] leading-6 text-foreground/90 [overflow-wrap:anywhere]">
+                    {step.detail}
+                  </p>
                   {hasMeta ? (
                     <button
                       type="button"
@@ -128,10 +130,12 @@ export function AgentReasoning({ steps }: AgentReasoningProps) {
                         transition={{ duration: 0.2, ease: "easeInOut" }}
                         className="overflow-hidden"
                       >
-                        <div className="rounded-lg border border-border bg-background px-3 py-2">
+                        <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-background px-3 py-2">
                           <ul className="space-y-1.5 text-xs leading-5 text-foreground/85">
                             {step.meta?.map((item, itemIndex) => (
-                              <li key={`${step.id}-${itemIndex}`}>{item}</li>
+                              <li key={`${step.id}-${itemIndex}`} className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
+                                {item}
+                              </li>
                             ))}
                           </ul>
                         </div>

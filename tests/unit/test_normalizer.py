@@ -103,6 +103,102 @@ async def test_normalizer_mineru_success_writes_cache(tmp_path, monkeypatch) -> 
     assert any(cache_root.rglob("*.json"))
 
 
+async def test_mineru_rejects_oversized_result_zip(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "normalizer_cache_dir", str(tmp_path / "normalized"))
+    monkeypatch.setattr(settings, "mineru_api_key", "test-key")
+    monkeypatch.setattr(settings, "mineru_api_base_url", "https://mineru.example/api/v4")
+    monkeypatch.setattr(settings, "mineru_max_result_zip_mb", 0)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/file-urls/batch"):
+            return httpx.Response(
+                200,
+                json={"code": 0, "msg": "ok", "data": {"batch_id": "batch-zip", "file_urls": ["https://upload.example/file"]}},
+            )
+        if request.url == httpx.URL("https://upload.example/file"):
+            return httpx.Response(200, text="")
+        if request.url.path.endswith("/extract-results/batch/batch-zip"):
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "msg": "ok",
+                    "data": {
+                        "extract_result": [
+                            {
+                                "file_name": "manual.pdf",
+                                "state": "done",
+                                "full_zip_url": "https://cdn.example/results/manual.zip",
+                            }
+                        ]
+                    },
+                },
+            )
+        if request.url == httpx.URL("https://cdn.example/results/manual.zip"):
+            return httpx.Response(200, content=_zip_bytes("# MinerU\n\nok"))
+        raise AssertionError(f"Unexpected request path: {request.url.path}")
+
+    transport = httpx.MockTransport(handler)
+
+    class MockAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr("src.document.normalizer.mineru.httpx.AsyncClient", MockAsyncClient)
+
+    with pytest.raises(NonRetryableError, match="result zip exceeded"):
+        await normalize_to_markdown(b"%PDF-1.4 test", "manual.pdf", "application/pdf")
+
+
+async def test_mineru_rejects_oversized_markdown_member(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "normalizer_cache_dir", str(tmp_path / "normalized"))
+    monkeypatch.setattr(settings, "mineru_api_key", "test-key")
+    monkeypatch.setattr(settings, "mineru_api_base_url", "https://mineru.example/api/v4")
+    monkeypatch.setattr(settings, "mineru_max_result_markdown_mb", 0)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/file-urls/batch"):
+            return httpx.Response(
+                200,
+                json={"code": 0, "msg": "ok", "data": {"batch_id": "batch-md", "file_urls": ["https://upload.example/file"]}},
+            )
+        if request.url == httpx.URL("https://upload.example/file"):
+            return httpx.Response(200, text="")
+        if request.url.path.endswith("/extract-results/batch/batch-md"):
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "msg": "ok",
+                    "data": {
+                        "extract_result": [
+                            {
+                                "file_name": "manual.pdf",
+                                "state": "done",
+                                "full_zip_url": "https://cdn.example/results/manual.zip",
+                            }
+                        ]
+                    },
+                },
+            )
+        if request.url == httpx.URL("https://cdn.example/results/manual.zip"):
+            return httpx.Response(200, content=_zip_bytes("# MinerU\n\nok"))
+        raise AssertionError(f"Unexpected request path: {request.url.path}")
+
+    transport = httpx.MockTransport(handler)
+
+    class MockAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr("src.document.normalizer.mineru.httpx.AsyncClient", MockAsyncClient)
+
+    with pytest.raises(NonRetryableError, match="markdown result exceeded"):
+        await normalize_to_markdown(b"%PDF-1.4 test", "manual.pdf", "application/pdf")
+
+
 async def test_normalizer_timeout_falls_back_to_local_parser(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "normalizer_cache_dir", str(tmp_path / "normalized"))
     monkeypatch.setattr(settings, "mineru_api_key", "test-key")

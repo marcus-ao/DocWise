@@ -48,6 +48,38 @@ import { notifyConversationsUpdated } from "@/lib/conversation-events"
 const AUTO_WORKSPACE = "__auto__"
 const COLLAPSED_TEXTAREA_HEIGHT = 40
 const EXPANDED_TEXTAREA_HEIGHT = 240
+const CANCELLED_RUNS_STORAGE_KEY = "docwise-cancelled-runs"
+
+function loadCancelledRuns(): Record<string, string> {
+  if (typeof window === "undefined") return {}
+  try {
+    const raw = window.localStorage.getItem(CANCELLED_RUNS_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return typeof parsed === "object" && parsed !== null ? parsed as Record<string, string> : {}
+  } catch {
+    return {}
+  }
+}
+
+function rememberCancelledRun(conversationId: string, runId: string) {
+  if (typeof window === "undefined") return
+  const next = loadCancelledRuns()
+  next[conversationId] = runId
+  window.localStorage.setItem(CANCELLED_RUNS_STORAGE_KEY, JSON.stringify(next))
+}
+
+function clearCancelledRun(conversationId: string) {
+  if (typeof window === "undefined") return
+  const next = loadCancelledRuns()
+  if (!(conversationId in next)) return
+  delete next[conversationId]
+  window.localStorage.setItem(CANCELLED_RUNS_STORAGE_KEY, JSON.stringify(next))
+}
+
+function getCancelledRunId(conversationId: string): string | null {
+  return loadCancelledRuns()[conversationId] ?? null
+}
 
 function describeScopeDecision(event: Pick<ReasoningEvent, "scope_reason_code" | "scope_reason_params" | "selected_project">) {
   const code = event.scope_reason_code
@@ -389,11 +421,29 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
   const loadConversation = React.useCallback(
     async (conversationIdToLoad: string) => {
       const conversation = await apiJson<ConversationDetail>(`/chat/conversations/${conversationIdToLoad}`)
+      const locallyCancelledRunId = getCancelledRunId(conversation.id)
+      const effectiveStatus =
+        conversation.status === "running" &&
+        Boolean(conversation.run_id) &&
+        locallyCancelledRunId === conversation.run_id
+          ? "cancelled"
+          : conversation.status
+      if (locallyCancelledRunId && (conversation.status !== "running" || conversation.run_id !== locallyCancelledRunId)) {
+        clearCancelledRun(conversation.id)
+      }
       const hydratedMessages = [...conversation.messages]
       const lastMessage = hydratedMessages[hydratedMessages.length - 1]
-      if (conversation.status === "running" && lastMessage?.role !== "assistant") {
+      if (effectiveStatus === "running" && lastMessage?.role !== "assistant") {
         hydratedMessages.push({
           id: `${conversation.run_id ?? conversation.id}:assistant-pending`,
+          role: "assistant",
+          content: "",
+          created_at: conversation.updated_at,
+        })
+      }
+      if (effectiveStatus === "cancelled" && lastMessage?.role !== "assistant") {
+        hydratedMessages.push({
+          id: `${conversation.run_id ?? conversation.id}:assistant-cancelled`,
           role: "assistant",
           content: "",
           created_at: conversation.updated_at,
@@ -416,10 +466,10 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
 
       setMessages(hydratedMessages)
       setReasoningSteps(
-        conversation.status === "running" && hydratedReasoning.length === 0 ? seededThinkingStep : hydratedReasoning
+        effectiveStatus === "running" && hydratedReasoning.length === 0 ? seededThinkingStep : hydratedReasoning
       )
-      setRemoteRunStatus(conversation.status ?? null)
-      activeRunIdRef.current = conversation.status === "running" ? conversation.run_id : null
+      setRemoteRunStatus(effectiveStatus ?? null)
+      activeRunIdRef.current = effectiveStatus === "running" ? conversation.run_id : null
       if (!conversationId) {
         setActiveConversation(conversation.id, "chat")
       }
@@ -520,6 +570,9 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
     if (!isRunActive) return
 
     userStoppedRef.current = true
+    if (runId && activeConversationId) {
+      rememberCancelledRun(activeConversationId, runId)
+    }
     try {
       if (runId) {
         await apiVoid(`/chat/runs/${runId}/cancel`, { method: "POST" })
@@ -532,8 +585,15 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
       activeRunIdRef.current = null
       setIsStreaming(false)
       setRemoteRunStatus("cancelled")
+      mergeReasoning({
+        node: "answer_generator",
+        title: "答案生成",
+        reason: "本轮回复已中止",
+        run_id: runId ?? undefined,
+        status: "error",
+      })
     }
-  }, [isRunActive])
+  }, [activeConversationId, isRunActive, mergeReasoning])
 
   const handleSend = React.useCallback(async () => {
     const query = input.trim()
@@ -686,7 +746,10 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
                 prev.map((message) => (message.id === assistantId ? { ...message, content } : message))
               )
             }
-            if (event === "done") {
+          if (event === "done") {
+              if (payload.query_id) {
+                clearCancelledRun(payload.query_id)
+              }
               if (payload.query_id) {
                 setActiveConversationId(payload.query_id)
                 setActiveConversation(payload.query_id, "chat")
@@ -708,13 +771,32 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
             }
           }
           if (event === "cancelled") {
+            if (payload.query_id && payload.run_id) {
+              rememberCancelledRun(payload.query_id, payload.run_id)
+            }
+            if (payload.answer !== undefined) {
+              setMessages((prev) =>
+                prev.map((message) =>
+                  message.id === assistantId ? { ...message, content: payload.answer ?? "" } : message
+                )
+              )
+            }
             if (payload.query_id) {
               setActiveConversationId(payload.query_id)
               setActiveConversation(payload.query_id, "chat")
             }
             activeRunIdRef.current = null
-            setRemoteRunStatus("succeeded")
+            setRemoteRunStatus("cancelled")
             notifyConversationsUpdated()
+            mergeReasoning({
+              node: "answer_generator",
+              title: "答案生成",
+              reason: "本轮回复已中止",
+              run_id: payload.run_id,
+              query_id: payload.query_id,
+              latency_ms: payload.latency_ms,
+              status: "error",
+            })
             setIsStreaming(false)
             break
           }
@@ -854,7 +936,7 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
                   </div>
                 </div>
               ) : (
-                <MessageList messages={messages} isStreaming={isRunActive} />
+                <MessageList messages={messages} isStreaming={isRunActive} assistantRunStatus={remoteRunStatus} />
               )}
             </div>
           </div>
@@ -978,14 +1060,15 @@ export function ChatConsole({ conversationId, backLabel, backHref }: ChatConsole
             <button
               type="button"
               aria-label="调整思考流面板宽度"
-              className="absolute left-0 top-0 z-20 h-full w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
-              onPointerDown={() => {
+              className="absolute inset-y-0 left-0 z-20 w-3 cursor-col-resize touch-none bg-transparent"
+              onPointerDown={(event) => {
+                event.preventDefault()
                 isResizingRef.current = true
                 document.body.style.cursor = "col-resize"
                 document.body.style.userSelect = "none"
               }}
             />
-            <div className="relative flex h-full min-h-0 flex-col overflow-hidden" style={{ width: reasoningWidth }}>
+            <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
               <button
                 type="button"
                 aria-label="占位拖拽手柄"

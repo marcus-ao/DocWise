@@ -9,9 +9,10 @@ import type { ChatMessage } from "@/lib/api"
 interface MessageListProps {
   messages: ChatMessage[]
   isStreaming?: boolean
+  assistantRunStatus?: string | null
 }
 
-export function MessageList({ messages, isStreaming = false }: MessageListProps) {
+export function MessageList({ messages, isStreaming = false, assistantRunStatus = null }: MessageListProps) {
   return (
     <div className="flex flex-col gap-6 pb-4">
       <AnimatePresence initial={false} mode="popLayout">
@@ -33,6 +34,7 @@ export function MessageList({ messages, isStreaming = false }: MessageListProps)
             <MessageBubble
               message={message}
               isStreamingPending={isStreaming && index === messages.length - 1 && message.role === "assistant"}
+              runStatus={index === messages.length - 1 && message.role === "assistant" ? assistantRunStatus : null}
             />
           </motion.div>
         ))}

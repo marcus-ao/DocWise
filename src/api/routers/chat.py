@@ -59,6 +59,20 @@ def _json_default(value: object) -> str:
     return str(value)
 
 
+def _frontend_run_status(run: AgentRun | None) -> str | None:
+    if run is None:
+        return None
+    if getattr(run, "error_message", None) == CANCELLED_RUN_MARKER:
+        return "cancelled"
+    status = getattr(getattr(run, "status", None), "value", getattr(run, "status", None))
+    if str(status) == "running" and str(run.id) not in RUN_CANCEL_EVENTS:
+        # A persisted `running` row without an active in-memory stream is stale
+        # in this local single-process dev runtime. Surface it as cancelled so
+        # the chat UI does not rehydrate a ghost streaming state on revisit.
+        return "cancelled"
+    return str(status) if status is not None else None
+
+
 def format_sse(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=_json_default)}\n\n"
 
@@ -320,6 +334,8 @@ async def map_langgraph_event_to_sse(event: dict) -> str | None:
                 {
                     "content": answer,
                     "confidence_score": float(state.get("confidence_score") or 0.0),
+                    "refused": bool(state.get("refused") or False),
+                    "refusal_reason": state.get("refusal_reason"),
                 },
             )
     if event_type == "on_chain_end" and name == "citation_verifier":
@@ -601,6 +617,10 @@ async def cancel_chat_run(db: DbSession, run_id: UUID) -> ConversationMutationRe
     cancel_event = RUN_CANCEL_EVENTS.get(str(run_id))
     if cancel_event is not None:
         cancel_event.set()
+    run_status = str(getattr(getattr(run, "status", None), "value", getattr(run, "status", None)) or "")
+    if run_status == "running" or not run_status:
+        run.error_message = CANCELLED_RUN_MARKER
+        await db.commit()
     return ConversationMutationResponse(query_id=run.query_id, status="accepted")
 
 
@@ -652,7 +672,7 @@ async def list_conversations(
                 updated_at=updated_at,
                 message_count=len(runs),
                 route=str(getattr(run.route, "value", run.route)) if run and run.route else None,
-                status=str(getattr(run.status, "value", run.status)) if run else None,
+                status=_frontend_run_status(run),
             )
         )
 
@@ -776,9 +796,7 @@ async def get_conversation(db: DbSession, conversation_id: UUID) -> ChatConversa
         workspace_slug=query.workspace_slug,
         created_at=query.created_at,
         updated_at=updated_at,
-        status=str(getattr(getattr(latest_run, "status", None), "value", getattr(latest_run, "status", None)))
-        if latest_run
-        else None,
+        status=_frontend_run_status(latest_run),
         messages=messages,
         trace_events=trace_events,
     )

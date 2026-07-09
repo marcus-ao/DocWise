@@ -42,6 +42,12 @@ function buildHeaders(request: Request) {
       headers.set(key, value)
     }
   })
+  if (!headers.has("authorization")) {
+    const token = process.env.DOCWISE_ADMIN_TOKEN ?? process.env.ADMIN_API_TOKEN
+    if (token) {
+      headers.set("authorization", `Bearer ${token}`)
+    }
+  }
   return headers
 }
 
